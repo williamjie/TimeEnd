@@ -10,6 +10,7 @@ win:
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
 
 directories:
   output: dist

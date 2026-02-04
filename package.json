@@ -1,6 +1,6 @@
 {
   "name": "timeend",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "强制中断计时器 - 专注工作，强制休息",
   "main": "src/main/main.js",
   "scripts": {
@@ -35,7 +35,8 @@
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
     }
   }
 }

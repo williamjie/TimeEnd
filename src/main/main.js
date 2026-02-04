@@ -122,6 +122,15 @@ function createMiniWindow() {
 }
 
 app.whenReady().then(() => {
+  // 应用启动时同步开机自启动设置
+  const config = store.get('config', { focusDuration: 25, breakDuration: 5, openAtLogin: false });
+  if (process.platform === 'win32' || process.platform === 'darwin') {
+    try {
+      app.setLoginItemSettings({ openAtLogin: !!config.openAtLogin });
+    } catch (e) {
+      console.warn('setLoginItemSettings:', e.message);
+    }
+  }
   createMainWindow();
 
   app.on('activate', () => {
@@ -321,14 +330,32 @@ ipcMain.on('close-interrupt', (event, hasInput) => {
 ipcMain.on('get-config', (event) => {
   const config = store.get('config', {
     focusDuration: 25,
-    breakDuration: 5
+    breakDuration: 5,
+    openAtLogin: false
   });
   event.reply('config-loaded', config);
 });
 
 ipcMain.on('save-config', (event, config) => {
-  store.set('config', config);
+  const prev = store.get('config', {});
+  const next = { ...prev, focusDuration: config.focusDuration, breakDuration: config.breakDuration };
+  if (config.openAtLogin !== undefined) next.openAtLogin = config.openAtLogin;
+  store.set('config', next);
   event.reply('config-saved');
+});
+
+// 开机自启动：勾选/取消时立即生效
+ipcMain.on('set-open-at-login', (event, enabled) => {
+  const config = store.get('config', { focusDuration: 25, breakDuration: 5, openAtLogin: false });
+  config.openAtLogin = !!enabled;
+  store.set('config', config);
+  if (process.platform === 'win32' || process.platform === 'darwin') {
+    try {
+      app.setLoginItemSettings({ openAtLogin: !!enabled });
+    } catch (e) {
+      console.warn('setLoginItemSettings:', e.message);
+    }
+  }
 });
 
 ipcMain.on('get-stats', (event) => {

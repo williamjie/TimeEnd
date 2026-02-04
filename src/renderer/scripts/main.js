@@ -8,7 +8,8 @@ let timerState = {
 
 let config = {
     focusDuration: 25,
-    breakDuration: 5
+    breakDuration: 5,
+    openAtLogin: false
 };
 
 let stats = {
@@ -34,6 +35,7 @@ const saveConfigBtn = document.getElementById('save-config-btn');
 const cancelConfigBtn = document.getElementById('cancel-config-btn');
 const focusInput = document.getElementById('focus-input');
 const breakInput = document.getElementById('break-input');
+const openAtLoginInput = document.getElementById('open-at-login-input');
 const focusDurationDisplay = document.getElementById('focus-duration');
 const breakDurationDisplay = document.getElementById('break-duration');
 const restStatItem = document.getElementById('rest-stat-item');
@@ -58,6 +60,7 @@ ipcRenderer.on('config-loaded', (event, loadedConfig) => {
     config = loadedConfig;
     focusInput.value = config.focusDuration;
     breakInput.value = config.breakDuration;
+    openAtLoginInput.checked = !!config.openAtLogin;
     focusDurationDisplay.textContent = config.focusDuration;
     breakDurationDisplay.textContent = config.breakDuration;
     updateTimeDisplay(config.focusDuration * 60);
@@ -214,7 +217,8 @@ cancelConfigBtn.addEventListener('click', () => {
 saveConfigBtn.addEventListener('click', () => {
     const newConfig = {
         focusDuration: parseInt(focusInput.value) || 25,
-        breakDuration: parseInt(breakInput.value) || 5
+        breakDuration: parseInt(breakInput.value) || 5,
+        openAtLogin: openAtLoginInput.checked
     };
     
     if (newConfig.focusDuration < 1 || newConfig.focusDuration > 120) {
@@ -237,6 +241,13 @@ saveConfigBtn.addEventListener('click', () => {
     }
     
     configModal.classList.remove('show');
+});
+
+// 开机自启动：勾选/取消时立即生效，无需点保存
+openAtLoginInput.addEventListener('change', () => {
+    const enabled = openAtLoginInput.checked;
+    config.openAtLogin = enabled;
+    ipcRenderer.send('set-open-at-login', enabled);
 });
 
 // 点击模态框外部关闭

@@ -298,6 +298,23 @@ body {
     border-color: #667eea;
 }
 
+.form-group-checkbox {
+    margin-bottom: 12px;
+}
+
+.form-group-checkbox label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+}
+
+.form-group-checkbox input[type="checkbox"] {
+    width: auto;
+    margin: 0;
+    cursor: pointer;
+}
+
 .modal-footer {
     padding: 20px;
     border-top: 1px solid #e0e0e0;
