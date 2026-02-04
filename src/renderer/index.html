@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TimeEnd - 强制中断计时器</title>
+    <link rel="stylesheet" href="styles/main.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>TimeEnd</h1>
+            <p class="subtitle">专注工作，强制休息</p>
+        </div>
+
+        <div class="timer-display">
+            <div id="time-display" class="time-text">25:00</div>
+            <div id="status-text" class="status-text">准备就绪</div>
+        </div>
+
+        <div class="stats-section">
+            <div class="stat-item">
+                <span class="stat-label">已完成</span>
+                <span id="completed-sessions" class="stat-value">0</span>
+                <span class="stat-unit">次专注</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">今日已专注</span>
+                <span id="today-minutes" class="stat-value">0</span>
+                <span class="stat-unit">分钟</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">累积已专注</span>
+                <span id="total-minutes" class="stat-value">0</span>
+                <span class="stat-unit">分钟</span>
+            </div>
+        </div>
+
+        <div class="config-section">
+            <div class="config-item">
+                <span class="config-icon">🍅</span>
+                <span id="focus-duration" class="config-value">25</span>
+                <span class="config-unit">分钟</span>
+            </div>
+            <div class="config-item">
+                <span class="config-icon">☕</span>
+                <span id="break-duration" class="config-value">5</span>
+                <span class="config-unit">分钟</span>
+            </div>
+        </div>
+
+        <div class="controls">
+            <button id="start-btn" class="btn btn-primary">开始</button>
+            <button id="pause-btn" class="btn btn-secondary" disabled>暂停</button>
+            <button id="stop-btn" class="btn btn-danger" disabled>停止</button>
+            <button id="config-btn" class="btn btn-config">⚙️ 设置</button>
+        </div>
+    </div>
+
+    <!-- 配置对话框 -->
+    <div id="config-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>设置</h2>
+                <span class="close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="focus-input">专注时长（分钟）:</label>
+                    <input type="number" id="focus-input" min="1" max="120" value="25">
+                </div>
+                <div class="form-group">
+                    <label for="break-input">休息时长（分钟）:</label>
+                    <input type="number" id="break-input" min="1" max="60" value="5">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="save-config-btn" class="btn btn-primary">保存</button>
+                <button id="cancel-config-btn" class="btn btn-secondary">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="scripts/main.js"></script>
+</body>
+</html>

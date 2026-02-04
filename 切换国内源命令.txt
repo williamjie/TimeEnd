@@ -1,0 +1,29 @@
+# npm 切换国内源命令
+
+## 方法1：设置 npm 镜像源（推荐）
+
+npm config set registry https://registry.npmmirror.com
+
+## 方法2：设置 Electron 镜像源（加速 Electron 下载）
+
+npm config set electron_mirror https://npmmirror.com/mirrors/electron/
+
+## 方法3：一次性设置所有镜像源
+
+npm config set registry https://registry.npmmirror.com
+npm config set electron_mirror https://npmmirror.com/mirrors/electron/
+npm config set electron_builder_binaries_mirror https://npmmirror.com/mirrors/electron-builder-binaries/
+
+## 验证设置
+
+npm config get registry
+npm config get electron_mirror
+
+## 恢复默认源（如果需要）
+
+npm config set registry https://registry.npmjs.org/
+npm config delete electron_mirror
+
+## 或者直接运行脚本
+
+.\设置国内源.ps1
