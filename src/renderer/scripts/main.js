@@ -17,6 +17,10 @@ let stats = {
     totalMinutes: 0
 };
 
+/** 休息开始时间戳，null 表示未在休息 */
+let restStartTime = null;
+let restTickId = null;
+
 // DOM 元素
 const timeDisplay = document.getElementById('time-display');
 const statusText = document.getElementById('status-text');
@@ -32,10 +36,13 @@ const focusInput = document.getElementById('focus-input');
 const breakInput = document.getElementById('break-input');
 const focusDurationDisplay = document.getElementById('focus-duration');
 const breakDurationDisplay = document.getElementById('break-duration');
+const restStatItem = document.getElementById('rest-stat-item');
+const restMinutesEl = document.getElementById('rest-minutes');
 
-// 加载配置
+// 加载配置与状态
 ipcRenderer.send('get-config');
 ipcRenderer.send('get-stats');
+ipcRenderer.send('get-rest-state');
 
 // 监听配置加载
 ipcRenderer.on('config-loaded', (event, loadedConfig) => {
@@ -59,11 +66,56 @@ ipcRenderer.on('stats-updated', (event, updatedStats) => {
     updateStats();
 });
 
+// 休息开始（结束或停止后）
+ipcRenderer.on('rest-started', (event, startTimestamp) => {
+    startRestTick(startTimestamp);
+});
+
+// 休息清零（再次开始专注时）
+ipcRenderer.on('rest-cleared', () => {
+    clearRest();
+});
+
+// 页面加载时恢复休息状态（如窗口刷新）
+ipcRenderer.on('rest-state-loaded', (event, startTimestamp) => {
+    if (startTimestamp != null) {
+        startRestTick(startTimestamp);
+    } else {
+        clearRest();
+    }
+});
+
 // 更新统计数据显示
 function updateStats() {
     document.getElementById('completed-sessions').textContent = stats.completedSessions;
     document.getElementById('today-minutes').textContent = stats.todayMinutes;
     document.getElementById('total-minutes').textContent = stats.totalMinutes;
+}
+
+// 开始休息计时：显示「本次休息」并每秒更新
+function startRestTick(startTimestamp) {
+    restStartTime = startTimestamp;
+    restStatItem.style.display = 'flex';
+    function tick() {
+        if (restStartTime == null) return;
+        const elapsedMs = Date.now() - restStartTime;
+        const minutes = Math.floor(elapsedMs / 60000);
+        restMinutesEl.textContent = minutes;
+    }
+    tick();
+    if (restTickId) clearInterval(restTickId);
+    restTickId = setInterval(tick, 1000);
+}
+
+// 休息清零：隐藏并停止计时
+function clearRest() {
+    restStartTime = null;
+    if (restTickId) {
+        clearInterval(restTickId);
+        restTickId = null;
+    }
+    restStatItem.style.display = 'none';
+    restMinutesEl.textContent = '0';
 }
 
 // 格式化时间显示
@@ -93,7 +145,7 @@ ipcRenderer.on('timer-update', (event, remaining) => {
     }
 });
 
-// 监听计时器停止
+// 监听计时器停止（主进程会同时发 rest-started，此处不重复处理休息）
 ipcRenderer.on('timer-stopped', () => {
     timerState.isRunning = false;
     timerState.isPaused = false;

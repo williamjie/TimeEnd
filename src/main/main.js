@@ -8,6 +8,8 @@ const store = new Store();
 let mainWindow = null;
 let interruptWindow = null;
 let timer = null;
+/** 休息开始时间戳，null 表示未在休息；结束/停止后设置，开始专注时清零 */
+let restStartTime = null;
 
 function createMainWindow() {
   mainWindow = new BrowserWindow({
@@ -101,13 +103,22 @@ app.on('window-all-closed', () => {
 
 // IPC 通信处理
 ipcMain.on('start-timer', (event, duration) => {
+  // 再次开始专注时，休息时间清零
+  restStartTime = null;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('rest-cleared');
+  }
   if (timer) {
     timer.stop();
   }
   timer = new Timer(duration, (remaining) => {
     mainWindow.webContents.send('timer-update', remaining);
   }, () => {
-    // 计时结束回调
+    // 计时结束回调：开始记录休息时间
+    restStartTime = Date.now();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('rest-started', restStartTime);
+    }
     createInterruptWindow();
     if (timer) {
       timer.stop();
@@ -134,6 +145,11 @@ ipcMain.on('stop-timer', () => {
     timer.stop();
     timer = null;
     mainWindow.webContents.send('timer-stopped');
+  }
+  // 停止后开始记录休息时间
+  restStartTime = Date.now();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('rest-started', restStartTime);
   }
 });
 
@@ -197,4 +213,9 @@ ipcMain.on('get-stats', (event) => {
     lastDate: new Date().toDateString()
   });
   event.reply('stats-loaded', stats);
+});
+
+// 获取当前休息状态（用于窗口刷新后恢复显示）
+ipcMain.on('get-rest-state', (event) => {
+  event.reply('rest-state-loaded', restStartTime);
 });
