@@ -1,0 +1,16 @@
+appId: com.timeend.app
+productName: TimeEnd
+
+win:
+  target: nsis
+  signingHashAlgorithms: []
+  sign: null
+  verifyUpdateCodeSignature: false
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+
+directories:
+  output: dist
+  buildResources: assets

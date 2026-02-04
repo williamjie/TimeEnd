@@ -28,7 +28,9 @@
     "productName": "TimeEnd",
     "win": {
       "target": "nsis",
-      "icon": "assets/icon.ico"
+      "signingHashAlgorithms": [],
+      "sign": null,
+      "verifyUpdateCodeSignature": false
     },
     "nsis": {
       "oneClick": false,
