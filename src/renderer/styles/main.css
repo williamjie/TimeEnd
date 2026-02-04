@@ -309,3 +309,137 @@ body {
 .modal-footer .btn {
     min-width: 80px;
 }
+
+/* 记录弹窗 */
+.modal-record {
+    max-width: 520px;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.record-body {
+    overflow-y: auto;
+}
+
+.record-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.record-tab {
+    padding: 8px 16px;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    background: #fff;
+    cursor: pointer;
+    font-size: 0.95em;
+}
+
+.record-tab.active {
+    border-color: #667eea;
+    background: #667eea;
+    color: #fff;
+}
+
+.record-tab:hover:not(.active) {
+    border-color: #667eea;
+    color: #667eea;
+}
+
+.record-range {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.record-range input[type="date"] {
+    padding: 6px 10px;
+    border: 2px solid #e0e0e0;
+    border-radius: 6px;
+    font-size: 0.95em;
+}
+
+.btn-range {
+    padding: 6px 12px;
+    border: 2px solid #e0e0e0;
+    border-radius: 6px;
+    background: #fff;
+    cursor: pointer;
+    font-size: 0.9em;
+}
+
+.btn-range:hover {
+    border-color: #667eea;
+    color: #667eea;
+}
+
+.record-summary {
+    padding: 10px 12px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    margin-bottom: 12px;
+    font-size: 0.9em;
+    color: #555;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.record-summary strong {
+    color: #667eea;
+}
+
+.record-list {
+    max-height: 320px;
+    overflow-y: auto;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 8px;
+}
+
+.record-item {
+    padding: 10px 12px;
+    margin-bottom: 6px;
+    border-radius: 6px;
+    font-size: 0.9em;
+    text-align: left;
+}
+
+.record-item.focus {
+    background: #e8ecff;
+    border-left: 4px solid #667eea;
+}
+
+.record-item.rest {
+    background: #e8f5e9;
+    border-left: 4px solid #27ae60;
+}
+
+.record-item-time {
+    color: #666;
+    margin-bottom: 4px;
+}
+
+.record-item-duration {
+    color: #333;
+    font-weight: 500;
+}
+
+.record-item-content {
+    margin-top: 4px;
+    color: #555;
+    font-size: 0.85em;
+    max-height: 2.5em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.record-list-empty {
+    padding: 24px;
+    text-align: center;
+    color: #999;
+    font-size: 0.95em;
+}

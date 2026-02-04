@@ -59,6 +59,8 @@
             <button id="pause-btn" class="btn btn-secondary" disabled>暂停</button>
             <button id="stop-btn" class="btn btn-danger" disabled>停止</button>
             <button id="config-btn" class="btn btn-config">⚙️ 设置</button>
+            <button id="minimize-btn" class="btn btn-config">最小化</button>
+            <button id="record-btn" class="btn btn-config">📋 记录</button>
         </div>
     </div>
 
@@ -82,6 +84,41 @@
             <div class="modal-footer">
                 <button id="save-config-btn" class="btn btn-primary">保存</button>
                 <button id="cancel-config-btn" class="btn btn-secondary">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 记录弹窗 -->
+    <div id="record-modal" class="modal">
+        <div class="modal-content modal-record">
+            <div class="modal-header">
+                <h2>📋 专注与休息记录</h2>
+                <span class="close record-close">&times;</span>
+            </div>
+            <div class="modal-body record-body">
+                <div class="record-tabs">
+                    <button type="button" class="record-tab active" data-type="day">按天</button>
+                    <button type="button" class="record-tab" data-type="week">按周</button>
+                    <button type="button" class="record-tab" data-type="month">按月</button>
+                </div>
+                <div class="record-range day-range">
+                    <button type="button" class="btn-range" data-offset="0">今天</button>
+                    <button type="button" class="btn-range" data-offset="-1">昨天</button>
+                    <input type="date" id="record-date" title="选择日期">
+                </div>
+                <div class="record-range week-range" style="display:none;">
+                    <button type="button" class="btn-range" data-offset="0">本周</button>
+                    <button type="button" class="btn-range" data-offset="-1">上周</button>
+                </div>
+                <div class="record-range month-range" style="display:none;">
+                    <button type="button" class="btn-range" data-offset="0">本月</button>
+                    <button type="button" class="btn-range" data-offset="-1">上月</button>
+                </div>
+                <div class="record-summary">
+                    <span>专注 <strong id="record-focus-count">0</strong> 次，共 <strong id="record-focus-min">0</strong> 分钟</span>
+                    <span>休息共 <strong id="record-rest-min">0</strong> 分钟</span>
+                </div>
+                <div class="record-list" id="record-list"></div>
             </div>
         </div>
     </div>

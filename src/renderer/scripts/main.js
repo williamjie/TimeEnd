@@ -38,6 +38,15 @@ const focusDurationDisplay = document.getElementById('focus-duration');
 const breakDurationDisplay = document.getElementById('break-duration');
 const restStatItem = document.getElementById('rest-stat-item');
 const restMinutesEl = document.getElementById('rest-minutes');
+const minimizeBtn = document.getElementById('minimize-btn');
+const recordBtn = document.getElementById('record-btn');
+const recordModal = document.getElementById('record-modal');
+const recordClose = document.querySelector('.record-close');
+const recordListEl = document.getElementById('record-list');
+const recordDateInput = document.getElementById('record-date');
+const recordFocusCount = document.getElementById('record-focus-count');
+const recordFocusMin = document.getElementById('record-focus-min');
+const recordRestMin = document.getElementById('record-rest-min');
 
 // 加载配置与状态
 ipcRenderer.send('get-config');
@@ -235,6 +244,129 @@ configModal.addEventListener('click', (e) => {
     if (e.target === configModal) {
         configModal.classList.remove('show');
     }
+});
+
+// 最小化：仅显示时间的小窗口，可拖动
+minimizeBtn.addEventListener('click', () => {
+    ipcRenderer.send('enter-minimize');
+});
+
+// ---------- 记录弹窗 ----------
+let recordQuery = { type: 'day', value: null };
+
+function formatRecordTime(ts) {
+    const d = new Date(ts);
+    return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function loadRecordSessions() {
+    ipcRenderer.send('get-sessions', recordQuery);
+}
+
+function renderRecordList(data) {
+    const { focusSessions, restSessions, summary } = data;
+    recordFocusCount.textContent = summary.focusCount;
+    recordFocusMin.textContent = summary.focusTotalMinutes;
+    recordRestMin.textContent = summary.restTotalMinutes;
+    const merged = [];
+    focusSessions.forEach((s) => merged.push({ type: 'focus', ...s }));
+    restSessions.forEach((s) => merged.push({ type: 'rest', ...s }));
+    merged.sort((a, b) => (b.endTime || 0) - (a.endTime || 0));
+    if (merged.length === 0) {
+        recordListEl.innerHTML = '<div class="record-list-empty">该时间段暂无记录</div>';
+        return;
+    }
+    recordListEl.innerHTML = merged.map((item) => {
+        if (item.type === 'focus') {
+            const timeStr = formatRecordTime(item.startTime) + ' ~ ' + formatRecordTime(item.endTime);
+            const content = item.inputContent ? `<div class="record-item-content">${escapeHtml(item.inputContent)}</div>` : '';
+            return `<div class="record-item focus">
+                <div class="record-item-time">${timeStr}</div>
+                <div class="record-item-duration">专注 ${item.durationMinutes} 分钟</div>
+                ${content}
+            </div>`;
+        }
+        const timeStr = formatRecordTime(item.startTime) + ' ~ ' + formatRecordTime(item.endTime);
+        return `<div class="record-item rest">
+            <div class="record-item-time">${timeStr}</div>
+            <div class="record-item-duration">休息 ${item.durationMinutes} 分钟</div>
+        </div>`;
+    }).join('');
+}
+
+function escapeHtml(s) {
+    const div = document.createElement('div');
+    div.textContent = s;
+    return div.innerHTML;
+}
+
+ipcRenderer.on('sessions-loaded', (event, data) => {
+    renderRecordList(data);
+});
+
+recordBtn.addEventListener('click', () => {
+    recordModal.classList.add('show');
+    const today = new Date();
+    recordDateInput.value = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+    recordQuery = { type: 'day', value: null };
+    loadRecordSessions();
+});
+
+recordClose.addEventListener('click', () => {
+    recordModal.classList.remove('show');
+});
+
+recordModal.addEventListener('click', (e) => {
+    if (e.target === recordModal) recordModal.classList.remove('show');
+});
+
+document.querySelectorAll('.record-tab').forEach((tab) => {
+    tab.addEventListener('click', () => {
+        document.querySelectorAll('.record-tab').forEach((t) => t.classList.remove('active'));
+        tab.classList.add('active');
+        document.querySelectorAll('.record-range').forEach((r) => r.style.display = 'none');
+        const type = tab.dataset.type;
+        recordQuery.type = type;
+        if (type === 'day') {
+            document.querySelector('.day-range').style.display = 'flex';
+            recordQuery.value = recordDateInput.value || null;
+        } else if (type === 'week') {
+            document.querySelector('.week-range').style.display = 'flex';
+            const d = new Date();
+            recordQuery.value = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+        } else {
+            document.querySelector('.month-range').style.display = 'flex';
+            const d = new Date();
+            recordQuery.value = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+        }
+        loadRecordSessions();
+    });
+});
+
+document.querySelectorAll('.record-range .btn-range').forEach((btn) => {
+    btn.addEventListener('click', () => {
+        const offset = parseInt(btn.dataset.offset, 10);
+        if (recordQuery.type === 'day') {
+            const d = new Date();
+            d.setDate(d.getDate() + offset);
+            recordDateInput.value = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+            recordQuery.value = recordDateInput.value;
+        } else if (recordQuery.type === 'week') {
+            const d = new Date();
+            d.setDate(d.getDate() + offset * 7);
+            recordQuery.value = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+        } else {
+            const d = new Date();
+            d.setMonth(d.getMonth() + offset);
+            recordQuery.value = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+        }
+        loadRecordSessions();
+    });
+});
+
+recordDateInput.addEventListener('change', () => {
+    recordQuery.value = recordDateInput.value || null;
+    loadRecordSessions();
 });
 
 // 初始化显示

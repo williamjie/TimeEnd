@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TimeEnd</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            width: 200px;
+            height: 100px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            -webkit-app-region: drag;
+            user-select: none;
+        }
+        .time-text {
+            font-size: 2em;
+            font-weight: bold;
+            color: #fff;
+            font-variant-numeric: tabular-nums;
+        }
+        .status-text {
+            font-size: 0.75em;
+            color: rgba(255,255,255,0.9);
+            margin-top: 2px;
+        }
+        .status-text.focusing { color: #ffeb3b; }
+        .status-text.paused { color: #ff9800; }
+        .restore-btn {
+            -webkit-app-region: no-drag;
+            margin-top: 6px;
+            padding: 2px 10px;
+            font-size: 0.7em;
+            border: none;
+            border-radius: 4px;
+            background: rgba(255,255,255,0.9);
+            color: #667eea;
+            cursor: pointer;
+        }
+        .restore-btn:hover {
+            background: #fff;
+        }
+    </style>
+</head>
+<body>
+    <div id="time-display" class="time-text">25:00</div>
+    <div id="status-text" class="status-text">准备就绪</div>
+    <button id="restore-btn" class="restore-btn">还原</button>
+    <script>
+        const { ipcRenderer } = require('electron');
+        const timeDisplay = document.getElementById('time-display');
+        const statusText = document.getElementById('status-text');
+        const restoreBtn = document.getElementById('restore-btn');
+
+        function formatTime(seconds) {
+            const mins = Math.floor(seconds / 60);
+            const secs = seconds % 60;
+            return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+        }
+
+        ipcRenderer.on('timer-update', (event, remaining) => {
+            timeDisplay.textContent = formatTime(remaining);
+            if (!statusText.classList.contains('focusing')) {
+                statusText.textContent = '专注中';
+                statusText.className = 'status-text focusing';
+            }
+        });
+
+        ipcRenderer.on('mini-status', (event, { isRunning, isPaused }) => {
+            if (!isRunning) {
+                statusText.textContent = '准备就绪';
+                statusText.className = 'status-text';
+                timeDisplay.textContent = '25:00';
+            } else if (isPaused) {
+                statusText.textContent = '已暂停';
+                statusText.className = 'status-text paused';
+            } else {
+                statusText.textContent = '专注中';
+                statusText.className = 'status-text focusing';
+            }
+        });
+
+        restoreBtn.addEventListener('click', () => {
+            ipcRenderer.send('restore-from-mini');
+        });
+    </script>
+</body>
+</html>

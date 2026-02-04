@@ -7,9 +7,12 @@ const store = new Store();
 
 let mainWindow = null;
 let interruptWindow = null;
+let miniWindow = null; // 最小化时仅显示时间的小窗口
 let timer = null;
 /** 休息开始时间戳，null 表示未在休息；结束/停止后设置，开始专注时清零 */
 let restStartTime = null;
+/** 当前专注开始时间戳，用于写入专注记录 */
+let focusStartTime = null;
 
 function createMainWindow() {
   mainWindow = new BrowserWindow({
@@ -57,6 +60,7 @@ function createInterruptWindow() {
     return;
   }
 
+  const interruptParent = miniWindow && !miniWindow.isDestroyed() ? miniWindow : mainWindow;
   interruptWindow = new BrowserWindow({
     width: 600,
     height: 400,
@@ -64,7 +68,7 @@ function createInterruptWindow() {
     modal: true,
     resizable: false,
     frame: true,
-    parent: mainWindow,
+    parent: interruptParent,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false
@@ -85,6 +89,38 @@ function createInterruptWindow() {
   });
 }
 
+function createMiniWindow() {
+  if (miniWindow && !miniWindow.isDestroyed()) {
+    miniWindow.focus();
+    return;
+  }
+  miniWindow = new BrowserWindow({
+    width: 200,
+    height: 100,
+    frame: false,
+    resizable: false,
+    alwaysOnTop: true,
+    transparent: false,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false
+    }
+  });
+  miniWindow.loadFile(path.join(__dirname, '../renderer/mini.html'));
+  miniWindow.on('closed', () => {
+    miniWindow = null;
+  });
+  // 同步当前计时与状态到小窗口
+  miniWindow.webContents.on('did-finish-load', () => {
+    if (timer) {
+      miniWindow.webContents.send('timer-update', timer.getRemaining());
+      miniWindow.webContents.send('mini-status', { isRunning: true, isPaused: timer.isPaused });
+    } else {
+      miniWindow.webContents.send('mini-status', { isRunning: false, isPaused: false });
+    }
+  });
+}
+
 app.whenReady().then(() => {
   createMainWindow();
 
@@ -101,18 +137,93 @@ app.on('window-all-closed', () => {
   }
 });
 
+// 写入休息记录（在点击「开始」专注时调用，restStartTime 存在则写一条）
+function saveRestSessionIfAny() {
+  if (restStartTime == null) return;
+  const endTime = Date.now();
+  const durationMinutes = Math.round((endTime - restStartTime) / 60000);
+  const sessions = store.get('restSessions', []);
+  sessions.push({
+    id: `rest-${restStartTime}-${Math.random().toString(36).slice(2, 9)}`,
+    startTime: restStartTime,
+    endTime,
+    durationMinutes
+  });
+  store.set('restSessions', sessions);
+}
+
+// 写入专注记录
+function saveFocusSession(endTime, inputContent) {
+  if (focusStartTime == null) return;
+  const durationMinutes = Math.round((endTime - focusStartTime) / 60000);
+  const sessions = store.get('focusSessions', []);
+  sessions.push({
+    id: `focus-${focusStartTime}-${Math.random().toString(36).slice(2, 9)}`,
+    startTime: focusStartTime,
+    endTime,
+    durationMinutes,
+    inputContent: inputContent || ''
+  });
+  store.set('focusSessions', sessions);
+}
+
+// 按时间段筛选并排序（结束时间倒序）
+function getSessionsInRange(type, value) {
+  const focusSessions = store.get('focusSessions', []);
+  const restSessions = store.get('restSessions', []);
+  let startTs = 0;
+  let endTs = Date.now() + 86400000;
+  const toDate = (ts) => new Date(ts);
+  if (type === 'day') {
+    const d = value ? new Date(value) : new Date();
+    startTs = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    endTs = startTs + 86400000;
+  } else if (type === 'week') {
+    const d = value ? new Date(value) : new Date();
+    const day = d.getDay();
+    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+    const monday = new Date(d);
+    monday.setDate(diff);
+    startTs = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate()).getTime();
+    endTs = startTs + 7 * 86400000;
+  } else if (type === 'month') {
+    const [y, m] = value ? value.split('-').map(Number) : [new Date().getFullYear(), new Date().getMonth() + 1];
+    startTs = new Date(y, m - 1, 1).getTime();
+    endTs = new Date(y, m, 0).getTime() + 86400000;
+  }
+  const inRange = (s, useEnd = true) => {
+    const t = useEnd ? (s.endTime != null ? s.endTime : s.startTime) : s.startTime;
+    return t >= startTs && t < endTs;
+  };
+  const focus = focusSessions.filter((s) => inRange(s)).sort((a, b) => (b.endTime || 0) - (a.endTime || 0));
+  const rest = restSessions.filter((s) => inRange(s)).sort((a, b) => (b.endTime || 0) - (a.endTime || 0));
+  const summary = {
+    focusCount: focus.length,
+    focusTotalMinutes: focus.reduce((sum, s) => sum + (s.durationMinutes || 0), 0),
+    restTotalMinutes: rest.reduce((sum, s) => sum + (s.durationMinutes || 0), 0)
+  };
+  return { focusSessions: focus, restSessions: rest, summary };
+}
+
 // IPC 通信处理
 ipcMain.on('start-timer', (event, duration) => {
-  // 再次开始专注时，休息时间清零
+  // 再次开始专注前：写入本次休息记录并清零
+  saveRestSessionIfAny();
   restStartTime = null;
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('rest-cleared');
   }
+  focusStartTime = Date.now();
   if (timer) {
     timer.stop();
   }
   timer = new Timer(duration, (remaining) => {
-    mainWindow.webContents.send('timer-update', remaining);
+    if (miniWindow && !miniWindow.isDestroyed()) {
+      miniWindow.webContents.send('timer-update', remaining);
+    }
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('timer-update', remaining);
+    }
   }, () => {
     // 计时结束回调：开始记录休息时间
     restStartTime = Date.now();
@@ -131,21 +242,33 @@ ipcMain.on('start-timer', (event, duration) => {
 ipcMain.on('pause-timer', () => {
   if (timer) {
     timer.pause();
+    if (miniWindow && !miniWindow.isDestroyed()) {
+      miniWindow.webContents.send('mini-status', { isRunning: true, isPaused: true });
+    }
   }
 });
 
 ipcMain.on('resume-timer', () => {
   if (timer) {
     timer.resume();
+    if (miniWindow && !miniWindow.isDestroyed()) {
+      miniWindow.webContents.send('mini-status', { isRunning: true, isPaused: false });
+    }
   }
 });
 
 ipcMain.on('stop-timer', () => {
   if (timer) {
+    const endTime = Date.now();
+    saveFocusSession(endTime, '');
     timer.stop();
     timer = null;
     mainWindow.webContents.send('timer-stopped');
+    if (miniWindow && !miniWindow.isDestroyed()) {
+      miniWindow.webContents.send('mini-status', { isRunning: false, isPaused: false });
+    }
   }
+  focusStartTime = null;
   // 停止后开始记录休息时间
   restStartTime = Date.now();
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -154,6 +277,9 @@ ipcMain.on('stop-timer', () => {
 });
 
 ipcMain.on('interrupt-submitted', (event, inputText) => {
+  const endTime = Date.now();
+  saveFocusSession(endTime, inputText);
+  focusStartTime = null;
   // 更新统计数据
   const stats = store.get('stats', {
     completedSessions: 0,
@@ -218,4 +344,34 @@ ipcMain.on('get-stats', (event) => {
 // 获取当前休息状态（用于窗口刷新后恢复显示）
 ipcMain.on('get-rest-state', (event) => {
   event.reply('rest-state-loaded', restStartTime);
+});
+
+// 进入最小化：隐藏主窗口，显示仅时间的小窗口
+ipcMain.on('enter-minimize', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.hide();
+    createMiniWindow();
+  }
+});
+
+// 从最小化还原：显示主窗口，关闭小窗口，同步状态
+ipcMain.on('restore-from-mini', () => {
+  if (miniWindow && !miniWindow.isDestroyed()) {
+    miniWindow.destroy();
+    miniWindow = null;
+  }
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.show();
+    mainWindow.focus();
+    if (timer) {
+      mainWindow.webContents.send('timer-update', timer.getRemaining());
+      mainWindow.webContents.send('rest-state-loaded', restStartTime);
+    }
+  }
+});
+
+// 记录查询：按天/周/月
+ipcMain.on('get-sessions', (event, { type, value }) => {
+  const result = getSessionsInRange(type || 'day', value);
+  event.reply('sessions-loaded', result);
 });
