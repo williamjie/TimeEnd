@@ -11,6 +11,10 @@ let miniWindow = null; // 最小化时仅显示时间的小窗口
 let timer = null;
 /** 休息开始时间戳，null 表示未在休息；结束/停止后设置，开始专注时清零 */
 let restStartTime = null;
+/** 暂停期间的休息开始时间，用于暂停时也显示本次休息；继续时冻结显示，停止时清零 */
+let pauseRestStartTime = null;
+/** 继续后冻结的休息分钟数（停止前保留），用于窗口加载时恢复显示 */
+let frozenRestMinutes = null;
 /** 当前专注开始时间戳，用于写入专注记录 */
 let focusStartTime = null;
 
@@ -95,8 +99,8 @@ function createMiniWindow() {
     return;
   }
   miniWindow = new BrowserWindow({
-    width: 200,
-    height: 100,
+    width: 250,
+    height: 148,
     frame: false,
     resizable: false,
     alwaysOnTop: true,
@@ -110,8 +114,11 @@ function createMiniWindow() {
   miniWindow.on('closed', () => {
     miniWindow = null;
   });
-  // 同步当前计时与状态到小窗口
+  // 同步当前计时、状态、配置、休息到小窗口
   miniWindow.webContents.on('did-finish-load', () => {
+    const config = store.get('config', { focusDuration: 25, breakDuration: 5 });
+    miniWindow.webContents.send('config-loaded', config);
+    miniWindow.webContents.send('rest-state-loaded', restStartTime, frozenRestMinutes);
     if (timer) {
       miniWindow.webContents.send('timer-update', timer.getRemaining());
       miniWindow.webContents.send('mini-status', { isRunning: true, isPaused: timer.isPaused });
@@ -219,8 +226,12 @@ ipcMain.on('start-timer', (event, duration) => {
   // 再次开始专注前：写入本次休息记录并清零
   saveRestSessionIfAny();
   restStartTime = null;
+  frozenRestMinutes = null;
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('rest-cleared');
+  }
+  if (miniWindow && !miniWindow.isDestroyed()) {
+    miniWindow.webContents.send('rest-cleared');
   }
   focusStartTime = Date.now();
   if (timer) {
@@ -235,9 +246,13 @@ ipcMain.on('start-timer', (event, duration) => {
     }
   }, () => {
     // 计时结束回调：开始记录休息时间
+    frozenRestMinutes = null;
     restStartTime = Date.now();
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('rest-started', restStartTime);
+    }
+    if (miniWindow && !miniWindow.isDestroyed()) {
+      miniWindow.webContents.send('rest-started', restStartTime);
     }
     createInterruptWindow();
     if (timer) {
@@ -251,7 +266,13 @@ ipcMain.on('start-timer', (event, duration) => {
 ipcMain.on('pause-timer', () => {
   if (timer) {
     timer.pause();
+    // 暂停期间也计算并显示本次休息，直到停止后再清零
+    pauseRestStartTime = Date.now();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('rest-started', pauseRestStartTime);
+    }
     if (miniWindow && !miniWindow.isDestroyed()) {
+      miniWindow.webContents.send('rest-started', pauseRestStartTime);
       miniWindow.webContents.send('mini-status', { isRunning: true, isPaused: true });
     }
   }
@@ -260,6 +281,18 @@ ipcMain.on('pause-timer', () => {
 ipcMain.on('resume-timer', () => {
   if (timer) {
     timer.resume();
+    // 继续时冻结本次休息显示（保留当前分钟数，停止后再清零）
+    if (pauseRestStartTime != null) {
+      const elapsedMinutes = Math.floor((Date.now() - pauseRestStartTime) / 60000);
+      frozenRestMinutes = elapsedMinutes;
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('rest-frozen', elapsedMinutes);
+      }
+      if (miniWindow && !miniWindow.isDestroyed()) {
+        miniWindow.webContents.send('rest-frozen', elapsedMinutes);
+      }
+      pauseRestStartTime = null;
+    }
     if (miniWindow && !miniWindow.isDestroyed()) {
       miniWindow.webContents.send('mini-status', { isRunning: true, isPaused: false });
     }
@@ -278,10 +311,21 @@ ipcMain.on('stop-timer', () => {
     }
   }
   focusStartTime = null;
-  // 停止后开始记录休息时间
+  pauseRestStartTime = null;
+  frozenRestMinutes = null;
+  // 停止后先清零再开始新的休息时间
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('rest-cleared');
+  }
+  if (miniWindow && !miniWindow.isDestroyed()) {
+    miniWindow.webContents.send('rest-cleared');
+  }
   restStartTime = Date.now();
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('rest-started', restStartTime);
+  }
+  if (miniWindow && !miniWindow.isDestroyed()) {
+    miniWindow.webContents.send('rest-started', restStartTime);
   }
 });
 
@@ -381,6 +425,15 @@ ipcMain.on('enter-minimize', () => {
   }
 });
 
+// 小窗口点击「记录」：显示主窗口并打开记录弹窗
+ipcMain.on('open-record-from-mini', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.show();
+    mainWindow.focus();
+    mainWindow.webContents.send('show-record-modal');
+  }
+});
+
 // 从最小化还原：显示主窗口，关闭小窗口，同步状态
 ipcMain.on('restore-from-mini', () => {
   if (miniWindow && !miniWindow.isDestroyed()) {
@@ -392,7 +445,7 @@ ipcMain.on('restore-from-mini', () => {
     mainWindow.focus();
     if (timer) {
       mainWindow.webContents.send('timer-update', timer.getRemaining());
-      mainWindow.webContents.send('rest-state-loaded', restStartTime);
+      mainWindow.webContents.send('rest-state-loaded', restStartTime, frozenRestMinutes);
     }
   }
 });

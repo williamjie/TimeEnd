@@ -83,15 +83,22 @@ ipcRenderer.on('rest-started', (event, startTimestamp) => {
     startRestTick(startTimestamp);
 });
 
-// 休息清零（再次开始专注时）
+// 休息清零（再次开始专注时，或停止时先清零再开始新休息）
 ipcRenderer.on('rest-cleared', () => {
     clearRest();
 });
 
+// 休息冻结（继续后保留当前分钟数，直到停止再清零）
+ipcRenderer.on('rest-frozen', (event, minutes) => {
+    freezeRest(minutes);
+});
+
 // 页面加载时恢复休息状态（如窗口刷新）
-ipcRenderer.on('rest-state-loaded', (event, startTimestamp) => {
+ipcRenderer.on('rest-state-loaded', (event, startTimestamp, frozenMinutes) => {
     if (startTimestamp != null) {
         startRestTick(startTimestamp);
+    } else if (frozenMinutes != null) {
+        freezeRest(frozenMinutes);
     } else {
         clearRest();
     }
@@ -128,6 +135,17 @@ function clearRest() {
     }
     restStatItem.style.display = 'none';
     restMinutesEl.textContent = '0';
+}
+
+// 休息冻结：暂停结束后保留当前分钟数，停止后再清零
+function freezeRest(minutes) {
+    restStartTime = null;
+    if (restTickId) {
+        clearInterval(restTickId);
+        restTickId = null;
+    }
+    restStatItem.style.display = 'flex';
+    restMinutesEl.textContent = minutes;
 }
 
 // 格式化时间显示
@@ -315,12 +333,19 @@ ipcRenderer.on('sessions-loaded', (event, data) => {
     renderRecordList(data);
 });
 
-recordBtn.addEventListener('click', () => {
+function openRecordModal() {
     recordModal.classList.add('show');
     const today = new Date();
     recordDateInput.value = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
     recordQuery = { type: 'day', value: null };
     loadRecordSessions();
+}
+
+recordBtn.addEventListener('click', openRecordModal);
+
+// 小窗口点击「记录」时由主进程通知打开记录弹窗
+ipcRenderer.on('show-record-modal', () => {
+    openRecordModal();
 });
 
 recordClose.addEventListener('click', () => {

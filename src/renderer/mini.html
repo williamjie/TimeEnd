@@ -10,40 +10,87 @@
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: #333;
-            width: 200px;
-            height: 100px;
+            width: 234px;
+            padding: 6px 8px 8px;
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
             -webkit-app-region: drag;
             user-select: none;
         }
         .time-text {
             font-size: 2em;
-            font-weight: bold;
+            font-weight: 800;
             color: #fff;
             font-variant-numeric: tabular-nums;
+            letter-spacing: 0.02em;
+            text-shadow: 0 0 14px rgba(255,255,255,0.5), 0 2px 4px rgba(0,0,0,0.2);
         }
         .status-text {
-            font-size: 0.75em;
+            font-size: 0.68em;
             color: rgba(255,255,255,0.9);
-            margin-top: 2px;
+            margin-top: 1px;
         }
         .status-text.focusing { color: #ffeb3b; }
         .status-text.paused { color: #ff9800; }
-        .restore-btn {
+        .rest-row {
             -webkit-app-region: no-drag;
-            margin-top: 6px;
-            padding: 2px 10px;
-            font-size: 0.7em;
+            font-size: 0.68em;
+            color: #27ae60;
+            margin-top: 2px;
+            display: none;
+        }
+        .rest-row.show { display: block; }
+        .mini-btns {
+            -webkit-app-region: no-drag;
+            display: flex;
+            gap: 5px;
+            margin-top: 5px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .mini-btn {
+            padding: 3px 8px;
+            font-size: 0.68em;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            min-width: 48px;
+        }
+        .mini-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .mini-btn-start {
+            background: #667eea;
+            color: #fff;
+        }
+        .mini-btn-pause {
+            background: #6c757d;
+            color: #fff;
+        }
+        .mini-btn-stop {
+            background: #e74c3c;
+            color: #fff;
+        }
+        .mini-footer {
+            -webkit-app-region: no-drag;
+            display: flex;
+            gap: 8px;
+            margin-top: 4px;
+            justify-content: center;
+        }
+        .restore-btn, .mini-btn-record {
+            -webkit-app-region: no-drag;
+            padding: 2px 8px;
+            font-size: 0.62em;
             border: none;
             border-radius: 4px;
             background: rgba(255,255,255,0.9);
             color: #667eea;
             cursor: pointer;
         }
-        .restore-btn:hover {
+        .restore-btn:hover, .mini-btn-record:hover {
             background: #fff;
         }
     </style>
@@ -51,12 +98,33 @@
 <body>
     <div id="time-display" class="time-text">25:00</div>
     <div id="status-text" class="status-text">准备就绪</div>
-    <button id="restore-btn" class="restore-btn">还原</button>
+    <div id="rest-row" class="rest-row">本次休息：<span id="rest-minutes">0</span> 分钟</div>
+    <div class="mini-btns">
+        <button type="button" id="start-btn" class="mini-btn mini-btn-start">开始</button>
+        <button type="button" id="pause-btn" class="mini-btn mini-btn-pause" disabled>暂停</button>
+        <button type="button" id="stop-btn" class="mini-btn mini-btn-stop" disabled>停止</button>
+    </div>
+    <div class="mini-footer">
+        <button id="record-btn-mini" class="restore-btn mini-btn-record">📋 记录</button>
+        <button id="restore-btn" class="restore-btn">还原</button>
+    </div>
     <script>
         const { ipcRenderer } = require('electron');
         const timeDisplay = document.getElementById('time-display');
         const statusText = document.getElementById('status-text');
+        const restRow = document.getElementById('rest-row');
+        const restMinutesEl = document.getElementById('rest-minutes');
+        const startBtn = document.getElementById('start-btn');
+        const pauseBtn = document.getElementById('pause-btn');
+        const stopBtn = document.getElementById('stop-btn');
+        const recordBtnMini = document.getElementById('record-btn-mini');
         const restoreBtn = document.getElementById('restore-btn');
+
+        let focusDuration = 25;
+        let isRunning = false;
+        let isPaused = false;
+        let restStartTime = null;
+        let restTickId = null;
 
         function formatTime(seconds) {
             const mins = Math.floor(seconds / 60);
@@ -64,26 +132,127 @@
             return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
         }
 
+        function updateButtons() {
+            startBtn.disabled = isRunning;
+            pauseBtn.disabled = !isRunning;
+            stopBtn.disabled = !isRunning;
+            if (isRunning) {
+                pauseBtn.textContent = isPaused ? '继续' : '暂停';
+            } else {
+                pauseBtn.textContent = '暂停';
+            }
+        }
+
+        function startRestTick(startTimestamp) {
+            restStartTime = startTimestamp;
+            restRow.classList.add('show');
+            function tick() {
+                if (restStartTime == null) return;
+                const elapsedMs = Date.now() - restStartTime;
+                restMinutesEl.textContent = Math.floor(elapsedMs / 60000);
+            }
+            tick();
+            if (restTickId) clearInterval(restTickId);
+            restTickId = setInterval(tick, 1000);
+        }
+
+        function clearRest() {
+            restStartTime = null;
+            if (restTickId) {
+                clearInterval(restTickId);
+                restTickId = null;
+            }
+            restRow.classList.remove('show');
+            restMinutesEl.textContent = '0';
+        }
+
+        function freezeRest(minutes) {
+            restStartTime = null;
+            if (restTickId) {
+                clearInterval(restTickId);
+                restTickId = null;
+            }
+            restRow.classList.add('show');
+            restMinutesEl.textContent = minutes;
+        }
+
+        ipcRenderer.on('config-loaded', (event, config) => {
+            focusDuration = config.focusDuration != null ? config.focusDuration : 25;
+            if (!isRunning) {
+                timeDisplay.textContent = formatTime(focusDuration * 60);
+            }
+        });
+
+        ipcRenderer.on('rest-state-loaded', (event, startTimestamp, frozenMinutes) => {
+            if (startTimestamp != null) {
+                startRestTick(startTimestamp);
+            } else if (frozenMinutes != null) {
+                freezeRest(frozenMinutes);
+            } else {
+                clearRest();
+            }
+        });
+
         ipcRenderer.on('timer-update', (event, remaining) => {
             timeDisplay.textContent = formatTime(remaining);
             if (!statusText.classList.contains('focusing')) {
                 statusText.textContent = '专注中';
                 statusText.className = 'status-text focusing';
             }
+            isRunning = true;
+            isPaused = false;
+            updateButtons();
         });
 
-        ipcRenderer.on('mini-status', (event, { isRunning, isPaused }) => {
-            if (!isRunning) {
+        ipcRenderer.on('mini-status', (event, { isRunning: running, isPaused: paused }) => {
+            isRunning = running;
+            isPaused = paused;
+            if (!running) {
                 statusText.textContent = '准备就绪';
                 statusText.className = 'status-text';
-                timeDisplay.textContent = '25:00';
-            } else if (isPaused) {
+                timeDisplay.textContent = formatTime(focusDuration * 60);
+            } else if (paused) {
                 statusText.textContent = '已暂停';
                 statusText.className = 'status-text paused';
             } else {
                 statusText.textContent = '专注中';
                 statusText.className = 'status-text focusing';
             }
+            updateButtons();
+        });
+
+        ipcRenderer.on('rest-started', (event, startTimestamp) => {
+            startRestTick(startTimestamp);
+        });
+
+        ipcRenderer.on('rest-cleared', () => {
+            clearRest();
+        });
+
+        ipcRenderer.on('rest-frozen', (event, minutes) => {
+            freezeRest(minutes);
+        });
+
+        startBtn.addEventListener('click', () => {
+            ipcRenderer.send('start-timer', focusDuration);
+        });
+
+        pauseBtn.addEventListener('click', () => {
+            if (isPaused) {
+                ipcRenderer.send('resume-timer');
+            } else {
+                ipcRenderer.send('pause-timer');
+            }
+        });
+
+        stopBtn.addEventListener('click', () => {
+            if (confirm('确定要停止计时吗？')) {
+                ipcRenderer.send('stop-timer');
+            }
+        });
+
+        recordBtnMini.addEventListener('click', () => {
+            ipcRenderer.send('open-record-from-mini');
         });
 
         restoreBtn.addEventListener('click', () => {
