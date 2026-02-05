@@ -93,6 +93,19 @@
         .restore-btn:hover, .mini-btn-record:hover {
             background: #fff;
         }
+        .mini-footer-extra {
+            margin-top: 2px;
+        }
+        .mini-btn-extra {
+            font-size: 0.6em;
+        }
+        .mini-btn-quit {
+            font-size: 0.6em;
+            color: #c0392b;
+        }
+        .mini-btn-quit:hover {
+            background: #ffebee;
+        }
     </style>
 </head>
 <body>
@@ -108,6 +121,10 @@
         <button id="record-btn-mini" class="restore-btn mini-btn-record">📋 记录</button>
         <button id="restore-btn" class="restore-btn">还原</button>
     </div>
+    <div class="mini-footer mini-footer-extra">
+        <button id="minimize-to-background-btn" class="restore-btn mini-btn-extra">最小化到后台</button>
+        <button id="quit-app-btn" class="restore-btn mini-btn-quit">退出程序</button>
+    </div>
     <script>
         const { ipcRenderer } = require('electron');
         const timeDisplay = document.getElementById('time-display');
@@ -119,6 +136,8 @@
         const stopBtn = document.getElementById('stop-btn');
         const recordBtnMini = document.getElementById('record-btn-mini');
         const restoreBtn = document.getElementById('restore-btn');
+        const minimizeToBackgroundBtn = document.getElementById('minimize-to-background-btn');
+        const quitAppBtn = document.getElementById('quit-app-btn');
 
         let focusDuration = 25;
         let isRunning = false;
@@ -257,6 +276,16 @@
 
         restoreBtn.addEventListener('click', () => {
             ipcRenderer.send('restore-from-mini');
+        });
+
+        minimizeToBackgroundBtn.addEventListener('click', () => {
+            ipcRenderer.send('minimize-to-background');
+        });
+
+        quitAppBtn.addEventListener('click', () => {
+            if (confirm('确定要退出程序吗？')) {
+                ipcRenderer.send('quit-app');
+            }
         });
     </script>
 </body>

@@ -24,7 +24,8 @@ let pendingStopEndTime = null;
 let interruptMode = 'interrupt';
 
 function createMainWindow() {
-  mainWindow = new BrowserWindow({
+  mainWindow = 
+  new BrowserWindow({
     width: 500,
     height: 600,
     resizable: true,
@@ -481,6 +482,18 @@ ipcMain.on('open-record-from-mini', () => {
     mainWindow.focus();
     mainWindow.webContents.send('show-record-modal');
   }
+});
+
+// 最小化到后台：小窗口最小化到任务栏
+ipcMain.on('minimize-to-background', () => {
+  if (miniWindow && !miniWindow.isDestroyed()) {
+    miniWindow.minimize();
+  }
+});
+
+// 退出程序
+ipcMain.on('quit-app', () => {
+  app.quit();
 });
 
 // 从最小化还原：显示主窗口，关闭小窗口，同步状态
