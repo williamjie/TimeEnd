@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const Timer = require('./timer');
 const Store = require('electron-store');
+const sessionStore = require('./sessionStore');
 
 const store = new Store();
 
@@ -129,6 +130,19 @@ function createMiniWindow() {
 }
 
 app.whenReady().then(() => {
+  // 一次性迁移：将 config 中的旧记录迁移到按周文件，避免 config.json 过大
+  const oldFocus = store.get('focusSessions', []);
+  const oldRest = store.get('restSessions', []);
+  if (oldFocus.length > 0 || oldRest.length > 0) {
+    try {
+      oldFocus.forEach((s) => sessionStore.appendFocusSession(s));
+      oldRest.forEach((s) => sessionStore.appendRestSession(s));
+      store.delete('focusSessions');
+      store.delete('restSessions');
+    } catch (e) {
+      console.warn('session migration:', e.message);
+    }
+  }
   // 应用启动时同步开机自启动设置
   const config = store.get('config', { focusDuration: 25, breakDuration: 5, openAtLogin: false });
   if (process.platform === 'win32' || process.platform === 'darwin') {
@@ -158,35 +172,32 @@ function saveRestSessionIfAny() {
   if (restStartTime == null) return;
   const endTime = Date.now();
   const durationMinutes = Math.round((endTime - restStartTime) / 60000);
-  const sessions = store.get('restSessions', []);
-  sessions.push({
+  sessionStore.appendRestSession({
     id: `rest-${restStartTime}-${Math.random().toString(36).slice(2, 9)}`,
     startTime: restStartTime,
     endTime,
     durationMinutes
   });
-  store.set('restSessions', sessions);
 }
 
 // 写入专注记录
 function saveFocusSession(endTime, inputContent) {
   if (focusStartTime == null) return;
   const durationMinutes = Math.round((endTime - focusStartTime) / 60000);
-  const sessions = store.get('focusSessions', []);
-  sessions.push({
+  sessionStore.appendFocusSession({
     id: `focus-${focusStartTime}-${Math.random().toString(36).slice(2, 9)}`,
     startTime: focusStartTime,
     endTime,
     durationMinutes,
     inputContent: inputContent || ''
   });
-  store.set('focusSessions', sessions);
 }
 
-// 按时间段筛选并排序（结束时间倒序）
+// 按时间段筛选并排序（结束时间倒序），从当前周 + 所有历史周文件合并取数
 function getSessionsInRange(type, value) {
-  const focusSessions = store.get('focusSessions', []);
-  const restSessions = store.get('restSessions', []);
+  const { focusSessions: allFocus, restSessions: allRest } = sessionStore.loadAllSessions();
+  const focusSessions = allFocus;
+  const restSessions = allRest;
   let startTs = 0;
   let endTs = Date.now() + 86400000;
   const toDate = (ts) => new Date(ts);
@@ -305,7 +316,9 @@ ipcMain.on('stop-timer', () => {
     saveFocusSession(endTime, '');
     timer.stop();
     timer = null;
-    mainWindow.webContents.send('timer-stopped');
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('timer-stopped');
+    }
     if (miniWindow && !miniWindow.isDestroyed()) {
       miniWindow.webContents.send('mini-status', { isRunning: false, isPaused: false });
     }
@@ -361,7 +374,9 @@ ipcMain.on('interrupt-submitted', (event, inputText) => {
   }
 
   // 更新主窗口统计数据
-  mainWindow.webContents.send('stats-updated', stats);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('stats-updated', stats);
+  }
 });
 
 ipcMain.on('close-interrupt', (event, hasInput) => {

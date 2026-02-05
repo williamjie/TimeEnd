@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir:*)",
+      "Bash(findstr:*)",
+      "Bash(if not exist \"E:\\\\company_code\\\\TimeEnd\\\\docs\" mkdir \"E:\\\\company_code\\\\TimeEnd\\\\docs\")"
+    ]
+  }
+}
