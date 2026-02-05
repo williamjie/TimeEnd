@@ -308,17 +308,23 @@ function renderRecordList(data) {
     recordListEl.innerHTML = merged.map((item) => {
         if (item.type === 'focus') {
             const timeStr = formatRecordTime(item.startTime) + ' ~ ' + formatRecordTime(item.endTime);
-            const content = item.inputContent ? `<div class="record-item-content">${escapeHtml(item.inputContent)}</div>` : '';
+            const content = item.inputContent
+                ? `<div class="record-item-content"><span class="record-item-content-label">事项：</span>${escapeHtml(item.inputContent)}</div>`
+                : '';
             return `<div class="record-item focus">
                 <div class="record-item-time">${timeStr}</div>
-                <div class="record-item-duration">专注 ${item.durationMinutes} 分钟</div>
+                <div class="record-item-meta">
+                    <span class="record-item-duration">时长：专注 ${item.durationMinutes} 分钟</span>
+                </div>
                 ${content}
             </div>`;
         }
         const timeStr = formatRecordTime(item.startTime) + ' ~ ' + formatRecordTime(item.endTime);
         return `<div class="record-item rest">
             <div class="record-item-time">${timeStr}</div>
-            <div class="record-item-duration">休息 ${item.durationMinutes} 分钟</div>
+            <div class="record-item-meta">
+                <span class="record-item-duration">时长：休息 ${item.durationMinutes} 分钟</span>
+            </div>
         </div>`;
     }).join('');
 }

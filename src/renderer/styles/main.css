@@ -440,18 +440,31 @@ body {
     margin-bottom: 4px;
 }
 
+.record-item-meta {
+    margin-bottom: 2px;
+}
+
 .record-item-duration {
     color: #333;
     font-weight: 500;
 }
 
+/* 专注/休息的时长与事项内容区分：时长在上，事项在下并带标签 */
 .record-item-content {
-    margin-top: 4px;
-    color: #555;
-    font-size: 0.85em;
-    max-height: 2.5em;
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid rgba(0, 0, 0, 0.06);
+    color: #444;
+    font-size: 0.9em;
+    max-height: 2.8em;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+.record-item-content-label {
+    color: #666;
+    font-size: 0.9em;
+    margin-right: 4px;
 }
 
 .record-list-empty {

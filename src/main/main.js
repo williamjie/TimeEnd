@@ -18,6 +18,10 @@ let pauseRestStartTime = null;
 let frozenRestMinutes = null;
 /** 当前专注开始时间戳，用于写入专注记录 */
 let focusStartTime = null;
+/** 用户点击「停止」后暂存的结束时间，弹窗提交/关闭后用于写入专注记录 */
+let pendingStopEndTime = null;
+/** 当前中断弹窗模式：'interrupt' 自然结束必填，'stop' 停止后选填 */
+let interruptMode = 'interrupt';
 
 function createMainWindow() {
   mainWindow = new BrowserWindow({
@@ -59,12 +63,16 @@ function createMainWindow() {
   });
 }
 
-function createInterruptWindow() {
+/**
+ * @param {'interrupt'|'stop'} mode - 'interrupt' 自然结束必填；'stop' 停止后选填，可跳过
+ */
+function createInterruptWindow(mode = 'interrupt') {
   if (interruptWindow) {
     interruptWindow.focus();
     return;
   }
 
+  interruptMode = mode;
   const interruptParent = miniWindow && !miniWindow.isDestroyed() ? miniWindow : mainWindow;
   interruptWindow = new BrowserWindow({
     width: 600,
@@ -83,15 +91,56 @@ function createInterruptWindow() {
 
   interruptWindow.loadFile(path.join(__dirname, '../renderer/interrupt.html'));
 
-  interruptWindow.on('closed', () => {
-    interruptWindow = null;
+  interruptWindow.webContents.on('did-finish-load', () => {
+    interruptWindow.webContents.send('interrupt-mode', interruptMode);
   });
 
-  // 阻止关闭窗口，直到用户输入内容
+  interruptWindow.on('closed', () => {
+    interruptWindow = null;
+    if (interruptMode === 'stop' && pendingStopEndTime != null) {
+      runStopAftermath('');
+    }
+    interruptMode = 'interrupt';
+  });
+
+  // 关闭时：stop 模式视为跳过，写空内容并收尾；interrupt 模式必须输入
   interruptWindow.on('close', (event) => {
+    if (interruptMode === 'stop') {
+      event.preventDefault();
+      if (pendingStopEndTime != null) runStopAftermath('');
+      return;
+    }
     event.preventDefault();
     interruptWindow.webContents.send('check-input');
   });
+}
+
+/** 停止后弹窗提交/关闭后的统一收尾：写专注记录、发 timer-stopped、开始休息 */
+function runStopAftermath(inputContent) {
+  if (pendingStopEndTime == null) return;
+  saveFocusSession(pendingStopEndTime, inputContent || '');
+  focusStartTime = null;
+  pauseRestStartTime = null;
+  frozenRestMinutes = null;
+  pendingStopEndTime = null;
+  if (interruptWindow) {
+    interruptWindow.destroy();
+    interruptWindow = null;
+  }
+  interruptMode = 'interrupt';
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('rest-cleared');
+  }
+  if (miniWindow && !miniWindow.isDestroyed()) {
+    miniWindow.webContents.send('rest-cleared');
+  }
+  restStartTime = Date.now();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('rest-started', restStartTime);
+  }
+  if (miniWindow && !miniWindow.isDestroyed()) {
+    miniWindow.webContents.send('rest-started', restStartTime);
+  }
 }
 
 function createMiniWindow() {
@@ -313,7 +362,7 @@ ipcMain.on('resume-timer', () => {
 ipcMain.on('stop-timer', () => {
   if (timer) {
     const endTime = Date.now();
-    saveFocusSession(endTime, '');
+    pendingStopEndTime = endTime;
     timer.stop();
     timer = null;
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -322,31 +371,19 @@ ipcMain.on('stop-timer', () => {
     if (miniWindow && !miniWindow.isDestroyed()) {
       miniWindow.webContents.send('mini-status', { isRunning: false, isPaused: false });
     }
-  }
-  focusStartTime = null;
-  pauseRestStartTime = null;
-  frozenRestMinutes = null;
-  // 停止后先清零再开始新的休息时间
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('rest-cleared');
-  }
-  if (miniWindow && !miniWindow.isDestroyed()) {
-    miniWindow.webContents.send('rest-cleared');
-  }
-  restStartTime = Date.now();
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('rest-started', restStartTime);
-  }
-  if (miniWindow && !miniWindow.isDestroyed()) {
-    miniWindow.webContents.send('rest-started', restStartTime);
+    createInterruptWindow('stop');
   }
 });
 
 ipcMain.on('interrupt-submitted', (event, inputText) => {
+  if (pendingStopEndTime != null) {
+    runStopAftermath(inputText || '');
+    return;
+  }
   const endTime = Date.now();
   saveFocusSession(endTime, inputText);
   focusStartTime = null;
-  // 更新统计数据
+  // 更新统计数据（仅自然结束更新）
   const stats = store.get('stats', {
     completedSessions: 0,
     todayMinutes: 0,
@@ -354,7 +391,6 @@ ipcMain.on('interrupt-submitted', (event, inputText) => {
     lastDate: new Date().toDateString()
   });
 
-  // 获取配置的专注时长
   const config = store.get('config', {
     focusDuration: 25,
     breakDuration: 5
@@ -367,13 +403,11 @@ ipcMain.on('interrupt-submitted', (event, inputText) => {
 
   store.set('stats', stats);
 
-  // 关闭中断窗口
   if (interruptWindow) {
     interruptWindow.destroy();
     interruptWindow = null;
   }
 
-  // 更新主窗口统计数据
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('stats-updated', stats);
   }

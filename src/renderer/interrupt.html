@@ -115,6 +115,16 @@
             transform: none;
         }
 
+        .skip-btn {
+            margin-left: 12px;
+            background: rgba(255, 255, 255, 0.3);
+            color: white;
+        }
+
+        .skip-btn:hover {
+            background: rgba(255, 255, 255, 0.5);
+        }
+
         .warning {
             margin-top: 20px;
             font-size: 0.9em;
@@ -125,13 +135,13 @@
 </head>
 <body>
     <div class="container">
-        <div class="icon">⏰</div>
-        <h1>时间到！</h1>
-        <div class="message">
+        <div class="icon" id="page-icon">⏰</div>
+        <h1 id="page-title">时间到！</h1>
+        <div class="message" id="page-message">
             专注时间已结束，请记录你刚才完成的工作内容，然后休息一下。
         </div>
         <div class="input-section">
-            <label for="interrupt-input" class="input-label">
+            <label for="interrupt-input" class="input-label" id="input-label">
                 请输入你刚才完成的工作内容：
             </label>
             <input 
@@ -143,7 +153,10 @@
             <button id="submit-btn" class="submit-btn" disabled>
                 提交并继续
             </button>
-            <div class="warning">
+            <button type="button" id="skip-btn" class="submit-btn skip-btn" style="display: none;">
+                跳过
+            </button>
+            <div class="warning" id="warning-el">
                 ⚠️ 必须输入内容才能关闭此窗口
             </div>
         </div>
@@ -153,33 +166,59 @@
         const { ipcRenderer } = require('electron');
         const input = document.getElementById('interrupt-input');
         const submitBtn = document.getElementById('submit-btn');
+        const skipBtn = document.getElementById('skip-btn');
+        const warningEl = document.getElementById('warning-el');
+        const pageIcon = document.getElementById('page-icon');
+        const pageTitle = document.getElementById('page-title');
+        const pageMessage = document.getElementById('page-message');
+        const inputLabel = document.getElementById('input-label');
 
-        // 检查输入内容
+        let isStopMode = false;
+
+        ipcRenderer.on('interrupt-mode', (event, mode) => {
+            isStopMode = (mode === 'stop');
+            if (isStopMode) {
+                document.title = '记录本次专注事项 - TimeEnd';
+                pageIcon.textContent = '✏️';
+                pageTitle.textContent = '记录本次专注事项';
+                pageMessage.textContent = '填写本次专注完成的内容（可选），提交后将保存到记录中。';
+                inputLabel.textContent = '本次专注事项：';
+                input.placeholder = '例如：阅读、写代码...';
+                submitBtn.textContent = '提交';
+                submitBtn.disabled = false;
+                skipBtn.style.display = 'inline-block';
+                warningEl.style.display = 'none';
+            }
+        });
+
         function checkInput() {
+            if (isStopMode) return;
             const hasInput = input.value.trim().length > 0;
             submitBtn.disabled = !hasInput;
         }
 
-        // 输入框变化监听
         input.addEventListener('input', checkInput);
 
-        // 回车键提交
         input.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter' && !submitBtn.disabled) {
-                submitBtn.click();
+            if (e.key === 'Enter') {
+                if (isStopMode) submitBtn.click();
+                else if (!submitBtn.disabled) submitBtn.click();
             }
         });
 
-        // 提交按钮
         submitBtn.addEventListener('click', () => {
             const inputText = input.value.trim();
-            if (inputText.length > 0) {
+            if (isStopMode || inputText.length > 0) {
                 ipcRenderer.send('interrupt-submitted', inputText);
             }
         });
 
-        // 阻止窗口关闭
+        skipBtn.addEventListener('click', () => {
+            ipcRenderer.send('interrupt-submitted', '');
+        });
+
         window.addEventListener('beforeunload', (e) => {
+            if (isStopMode) return;
             if (input.value.trim().length === 0) {
                 e.preventDefault();
                 e.returnValue = '';
@@ -187,15 +226,14 @@
             }
         });
 
-        // 监听主进程的关闭检查
         ipcRenderer.on('check-input', () => {
+            if (isStopMode) return;
             if (input.value.trim().length === 0) {
                 alert('请先输入工作内容才能关闭窗口！');
                 input.focus();
             }
         });
 
-        // 自动聚焦输入框
         input.focus();
     </script>
 </body>
