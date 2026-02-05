@@ -1,6 +1,6 @@
 {
   "name": "timeend",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "强制中断计时器 - 专注工作，强制休息",
   "main": "src/main/main.js",
   "scripts": {
