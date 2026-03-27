@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, screen } = require('electron');
 const path = require('path');
 const Timer = require('./timer');
 const Store = require('electron-store');
@@ -144,8 +144,28 @@ function runStopAftermath(inputContent) {
   }
 }
 
+/** 将小窗放在主窗口所在显示器工作区右下角（留出边距） */
+function positionMiniWindowBottomRight() {
+  if (!miniWindow || miniWindow.isDestroyed()) return;
+  const [winW, winH] = miniWindow.getSize();
+  let display = screen.getPrimaryDisplay();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    const b = mainWindow.getBounds();
+    display = screen.getDisplayNearestPoint({
+      x: b.x + Math.max(1, Math.floor(b.width / 2)),
+      y: b.y + Math.max(1, Math.floor(b.height / 2))
+    });
+  }
+  const wa = display.workArea;
+  const margin = 8;
+  const px = wa.x + wa.width - winW - margin;
+  const py = wa.y + wa.height - winH - margin;
+  miniWindow.setPosition(Math.round(px), Math.round(py));
+}
+
 function createMiniWindow() {
   if (miniWindow && !miniWindow.isDestroyed()) {
+    positionMiniWindowBottomRight();
     miniWindow.focus();
     return;
   }
@@ -167,6 +187,7 @@ function createMiniWindow() {
   });
   // 同步当前计时、状态、配置、休息到小窗口
   miniWindow.webContents.on('did-finish-load', () => {
+    positionMiniWindowBottomRight();
     const config = store.get('config', { focusDuration: 25, breakDuration: 5 });
     miniWindow.webContents.send('config-loaded', config);
     miniWindow.webContents.send('rest-state-loaded', restStartTime, frozenRestMinutes);
