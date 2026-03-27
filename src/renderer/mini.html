@@ -109,6 +109,23 @@
         .mini-btn-quit:hover {
             background: #ffebee;
         }
+        .salary-strip {
+            -webkit-app-region: no-drag;
+            width: 100%;
+            margin-top: 6px;
+            padding: 8px 10px;
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.16);
+        }
+        .salary-mini-line {
+            font-size: 0.76em;
+            font-weight: 600;
+            color: rgba(255, 255, 255, 0.97);
+            line-height: 1.5;
+            text-align: left;
+            white-space: normal;
+            word-break: break-all;
+        }
     </style>
 </head>
 <body>
@@ -120,6 +137,11 @@
         <button type="button" id="pause-btn" class="mini-btn mini-btn-pause" disabled>暂停</button>
         <button type="button" id="stop-btn" class="mini-btn mini-btn-stop" disabled>停止</button>
     </div>
+    <div id="salary-strip" class="salary-strip">
+        <div id="salary-mini-line1" class="salary-mini-line"></div>
+        <div id="salary-mini-line2" class="salary-mini-line"></div>
+        <div id="salary-mini-line3" class="salary-mini-line"></div>
+    </div>
     <div class="mini-footer">
         <button id="record-btn-mini" class="restore-btn mini-btn-record">📋 记录</button>
         <button id="restore-btn" class="restore-btn">还原</button>
@@ -128,168 +150,6 @@
         <button id="minimize-to-background-btn" class="restore-btn mini-btn-extra">最小化到后台</button>
         <button id="quit-app-btn" class="restore-btn mini-btn-quit">退出程序</button>
     </div>
-    <script>
-        const { ipcRenderer } = require('electron');
-        const timeDisplay = document.getElementById('time-display');
-        const statusText = document.getElementById('status-text');
-        const restRow = document.getElementById('rest-row');
-        const restMinutesEl = document.getElementById('rest-minutes');
-        const startBtn = document.getElementById('start-btn');
-        const pauseBtn = document.getElementById('pause-btn');
-        const stopBtn = document.getElementById('stop-btn');
-        const recordBtnMini = document.getElementById('record-btn-mini');
-        const restoreBtn = document.getElementById('restore-btn');
-        const minimizeToBackgroundBtn = document.getElementById('minimize-to-background-btn');
-        const quitAppBtn = document.getElementById('quit-app-btn');
-
-        let focusDuration = 25;
-        let isRunning = false;
-        let isPaused = false;
-        let restStartTime = null;
-        let restTickId = null;
-
-        function formatTime(seconds) {
-            const mins = Math.floor(seconds / 60);
-            const secs = seconds % 60;
-            return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-        }
-
-        function updateButtons() {
-            startBtn.disabled = isRunning;
-            pauseBtn.disabled = !isRunning;
-            stopBtn.disabled = !isRunning;
-            if (isRunning) {
-                pauseBtn.textContent = isPaused ? '继续' : '暂停';
-            } else {
-                pauseBtn.textContent = '暂停';
-            }
-        }
-
-        function startRestTick(startTimestamp) {
-            restStartTime = startTimestamp;
-            restRow.classList.add('show');
-            function tick() {
-                if (restStartTime == null) return;
-                const elapsedMs = Date.now() - restStartTime;
-                restMinutesEl.textContent = Math.floor(elapsedMs / 60000);
-            }
-            tick();
-            if (restTickId) clearInterval(restTickId);
-            restTickId = setInterval(tick, 1000);
-        }
-
-        function clearRest() {
-            restStartTime = null;
-            if (restTickId) {
-                clearInterval(restTickId);
-                restTickId = null;
-            }
-            restRow.classList.remove('show');
-            restMinutesEl.textContent = '0';
-        }
-
-        function freezeRest(minutes) {
-            restStartTime = null;
-            if (restTickId) {
-                clearInterval(restTickId);
-                restTickId = null;
-            }
-            restRow.classList.add('show');
-            restMinutesEl.textContent = minutes;
-        }
-
-        ipcRenderer.on('config-loaded', (event, config) => {
-            focusDuration = config.focusDuration != null ? config.focusDuration : 25;
-            if (!isRunning) {
-                timeDisplay.textContent = formatTime(focusDuration * 60);
-            }
-        });
-
-        ipcRenderer.on('rest-state-loaded', (event, startTimestamp, frozenMinutes) => {
-            if (startTimestamp != null) {
-                startRestTick(startTimestamp);
-            } else if (frozenMinutes != null) {
-                freezeRest(frozenMinutes);
-            } else {
-                clearRest();
-            }
-        });
-
-        ipcRenderer.on('timer-update', (event, remaining) => {
-            timeDisplay.textContent = formatTime(remaining);
-            if (!statusText.classList.contains('focusing')) {
-                statusText.textContent = '专注中';
-                statusText.className = 'status-text focusing';
-            }
-            isRunning = true;
-            isPaused = false;
-            updateButtons();
-        });
-
-        ipcRenderer.on('mini-status', (event, { isRunning: running, isPaused: paused }) => {
-            isRunning = running;
-            isPaused = paused;
-            if (!running) {
-                statusText.textContent = '准备就绪';
-                statusText.className = 'status-text';
-                timeDisplay.textContent = formatTime(focusDuration * 60);
-            } else if (paused) {
-                statusText.textContent = '已暂停';
-                statusText.className = 'status-text paused';
-            } else {
-                statusText.textContent = '专注中';
-                statusText.className = 'status-text focusing';
-            }
-            updateButtons();
-        });
-
-        ipcRenderer.on('rest-started', (event, startTimestamp) => {
-            startRestTick(startTimestamp);
-        });
-
-        ipcRenderer.on('rest-cleared', () => {
-            clearRest();
-        });
-
-        ipcRenderer.on('rest-frozen', (event, minutes) => {
-            freezeRest(minutes);
-        });
-
-        startBtn.addEventListener('click', () => {
-            ipcRenderer.send('start-timer', focusDuration);
-        });
-
-        pauseBtn.addEventListener('click', () => {
-            if (isPaused) {
-                ipcRenderer.send('resume-timer');
-            } else {
-                ipcRenderer.send('pause-timer');
-            }
-        });
-
-        stopBtn.addEventListener('click', () => {
-            if (confirm('确定要停止计时吗？')) {
-                ipcRenderer.send('stop-timer');
-            }
-        });
-
-        recordBtnMini.addEventListener('click', () => {
-            ipcRenderer.send('open-record-from-mini');
-        });
-
-        restoreBtn.addEventListener('click', () => {
-            ipcRenderer.send('restore-from-mini');
-        });
-
-        minimizeToBackgroundBtn.addEventListener('click', () => {
-            ipcRenderer.send('minimize-to-background');
-        });
-
-        quitAppBtn.addEventListener('click', () => {
-            if (confirm('确定要退出程序吗？')) {
-                ipcRenderer.send('quit-app');
-            }
-        });
-    </script>
+    <script src="scripts/mini-renderer.js"></script>
 </body>
 </html>

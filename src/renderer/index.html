@@ -41,6 +41,13 @@
             </div>
         </div>
 
+        <div class="salary-section" id="salary-section">
+            <div class="salary-section-title">工资信息</div>
+            <div id="salary-pay-line" class="salary-line"></div>
+            <div id="salary-work-line" class="salary-line salary-work"></div>
+            <div id="salary-money-line" class="salary-line"></div>
+        </div>
+
         <div class="config-section">
             <div class="config-item">
                 <span class="config-icon">🍅</span>
@@ -55,12 +62,16 @@
         </div>
 
         <div class="controls">
-            <button id="start-btn" class="btn btn-primary">开始</button>
-            <button id="pause-btn" class="btn btn-secondary" disabled>暂停</button>
-            <button id="stop-btn" class="btn btn-danger" disabled>停止</button>
-            <button id="config-btn" class="btn btn-config">⚙️ 设置</button>
-            <button id="minimize-btn" class="btn btn-config">最小化</button>
-            <button id="record-btn" class="btn btn-config">📋 记录</button>
+            <div class="controls-row">
+                <button id="start-btn" class="btn btn-primary">开始</button>
+                <button id="pause-btn" class="btn btn-secondary" disabled>暂停</button>
+                <button id="stop-btn" class="btn btn-danger" disabled>停止</button>
+            </div>
+            <div class="controls-row">
+                <button id="config-btn" class="btn btn-config">⚙️ 设置</button>
+                <button id="minimize-btn" class="btn btn-config">最小化</button>
+                <button id="record-btn" class="btn btn-config">📋 记录</button>
+            </div>
         </div>
     </div>
 
@@ -85,6 +96,24 @@
                         <input type="checkbox" id="open-at-login-input">
                         开机自启动
                     </label>
+                </div>
+                <hr class="config-divider">
+                <p class="config-subtitle">工作与工资（用于下方统计）</p>
+                <div class="form-group">
+                    <label for="work-start-input">上班时间（HH:mm）:</label>
+                    <input type="text" id="work-start-input" placeholder="例如 09:00" pattern="[0-9]{1,2}:[0-9]{2}">
+                </div>
+                <div class="form-group">
+                    <label for="work-end-input">下班时间（HH:mm）:</label>
+                    <input type="text" id="work-end-input" placeholder="例如 18:00" pattern="[0-9]{1,2}:[0-9]{2}">
+                </div>
+                <div class="form-group">
+                    <label for="daily-salary-input">日工资（元）:</label>
+                    <input type="number" id="daily-salary-input" min="0" step="0.01" placeholder="例如 300">
+                </div>
+                <div class="form-group">
+                    <label for="payday-input">每月发薪日（1-31）:</label>
+                    <input type="number" id="payday-input" min="1" max="31" placeholder="例如 15">
                 </div>
             </div>
             <div class="modal-footer">

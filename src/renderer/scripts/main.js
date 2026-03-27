@@ -1,5 +1,30 @@
 const { ipcRenderer } = require('electron');
 
+let computeSalaryState = () => ({
+    configured: false,
+    main: {
+        payLine: '',
+        workLine: '请先设置工资信息（设置里填写上下班与日工资）。',
+        moneyLine: ''
+    },
+    mini: {
+        line1: '',
+        line2: '请先设置工资信息',
+        line3: ''
+    },
+    raw: {}
+});
+
+try {
+    ({ computeSalaryState } = require('./scripts/salary'));
+} catch (primaryError) {
+    try {
+        ({ computeSalaryState } = require('./salary'));
+    } catch (fallbackError) {
+        console.error('工资模块加载失败，已降级为无工资展示模式。', primaryError, fallbackError);
+    }
+}
+
 let timerState = {
     isRunning: false,
     isPaused: false,
@@ -9,7 +34,11 @@ let timerState = {
 let config = {
     focusDuration: 25,
     breakDuration: 5,
-    openAtLogin: false
+    openAtLogin: false,
+    workStartTime: '',
+    workEndTime: '',
+    dailySalary: '',
+    payday: ''
 };
 
 let stats = {
@@ -21,6 +50,7 @@ let stats = {
 /** 休息开始时间戳，null 表示未在休息 */
 let restStartTime = null;
 let restTickId = null;
+let salaryTickId = null;
 
 // DOM 元素
 const timeDisplay = document.getElementById('time-display');
@@ -36,6 +66,13 @@ const cancelConfigBtn = document.getElementById('cancel-config-btn');
 const focusInput = document.getElementById('focus-input');
 const breakInput = document.getElementById('break-input');
 const openAtLoginInput = document.getElementById('open-at-login-input');
+const workStartInput = document.getElementById('work-start-input');
+const workEndInput = document.getElementById('work-end-input');
+const dailySalaryInput = document.getElementById('daily-salary-input');
+const paydayInput = document.getElementById('payday-input');
+const salaryPayLine = document.getElementById('salary-pay-line');
+const salaryWorkLine = document.getElementById('salary-work-line');
+const salaryMoneyLine = document.getElementById('salary-money-line');
 const focusDurationDisplay = document.getElementById('focus-duration');
 const breakDurationDisplay = document.getElementById('break-duration');
 const restStatItem = document.getElementById('rest-stat-item');
@@ -63,7 +100,29 @@ ipcRenderer.on('config-loaded', (event, loadedConfig) => {
     openAtLoginInput.checked = !!config.openAtLogin;
     focusDurationDisplay.textContent = config.focusDuration;
     breakDurationDisplay.textContent = config.breakDuration;
+    workStartInput.value = config.workStartTime != null ? config.workStartTime : '';
+    workEndInput.value = config.workEndTime != null ? config.workEndTime : '';
+    dailySalaryInput.value = config.dailySalary !== '' && config.dailySalary != null ? config.dailySalary : '';
+    paydayInput.value = config.payday !== '' && config.payday != null ? config.payday : '';
     updateTimeDisplay(config.focusDuration * 60);
+    startSalaryTick();
+});
+
+ipcRenderer.on('config-saved', (event, fullConfig) => {
+    config = fullConfig;
+    focusInput.value = config.focusDuration;
+    breakInput.value = config.breakDuration;
+    openAtLoginInput.checked = !!config.openAtLogin;
+    workStartInput.value = config.workStartTime != null ? config.workStartTime : '';
+    workEndInput.value = config.workEndTime != null ? config.workEndTime : '';
+    dailySalaryInput.value = config.dailySalary !== '' && config.dailySalary != null ? config.dailySalary : '';
+    paydayInput.value = config.payday !== '' && config.payday != null ? config.payday : '';
+    focusDurationDisplay.textContent = config.focusDuration;
+    breakDurationDisplay.textContent = config.breakDuration;
+    if (!timerState.isRunning) {
+        updateTimeDisplay(config.focusDuration * 60);
+    }
+    startSalaryTick();
 });
 
 // 监听统计数据加载
@@ -109,6 +168,25 @@ function updateStats() {
     document.getElementById('completed-sessions').textContent = stats.completedSessions;
     document.getElementById('today-minutes').textContent = stats.todayMinutes;
     document.getElementById('total-minutes').textContent = stats.totalMinutes;
+}
+
+function refreshSalaryMain() {
+    const state = computeSalaryState(config);
+    if (!state.configured) {
+        salaryPayLine.textContent = '';
+        salaryWorkLine.textContent = state.main.workLine;
+        salaryMoneyLine.textContent = '';
+        return;
+    }
+    salaryPayLine.textContent = state.main.payLine;
+    salaryWorkLine.textContent = state.main.workLine;
+    salaryMoneyLine.textContent = state.main.moneyLine;
+}
+
+function startSalaryTick() {
+    refreshSalaryMain();
+    if (salaryTickId) clearInterval(salaryTickId);
+    salaryTickId = setInterval(refreshSalaryMain, 1000);
 }
 
 // 开始休息计时：显示「本次休息」并每秒更新
@@ -216,27 +294,79 @@ stopBtn.addEventListener('click', () => {
 });
 
 // 配置按钮
-configBtn.addEventListener('click', () => {
+function openConfigModal() {
+    configModal.style.display = 'flex';
     configModal.classList.add('show');
     focusInput.value = config.focusDuration;
     breakInput.value = config.breakDuration;
-});
+    workStartInput.value = config.workStartTime != null ? config.workStartTime : '';
+    workEndInput.value = config.workEndTime != null ? config.workEndTime : '';
+    dailySalaryInput.value = config.dailySalary !== '' && config.dailySalary != null ? config.dailySalary : '';
+    paydayInput.value = config.payday !== '' && config.payday != null ? config.payday : '';
+}
+
+function closeConfigModalPanel() {
+    configModal.classList.remove('show');
+    configModal.style.display = 'none';
+}
+
+configBtn.addEventListener('click', openConfigModal);
 
 // 关闭模态框
 closeModal.addEventListener('click', () => {
-    configModal.classList.remove('show');
+    closeConfigModalPanel();
 });
 
 cancelConfigBtn.addEventListener('click', () => {
-    configModal.classList.remove('show');
+    closeConfigModalPanel();
 });
 
 // 保存配置
 saveConfigBtn.addEventListener('click', () => {
+    const ws = (workStartInput.value || '').trim();
+    const we = (workEndInput.value || '').trim();
+    const dsRaw = (dailySalaryInput.value || '').trim();
+    const pdRaw = (paydayInput.value || '').trim();
+
+    const hasAny = ws !== '' || we !== '' || dsRaw !== '' || pdRaw !== '';
+    if (hasAny) {
+        if (ws === '' || we === '' || dsRaw === '' || pdRaw === '') {
+            alert('工作与工资四项需全部填写，或全部留空。');
+            return;
+        }
+        const pd = parseInt(pdRaw, 10);
+        if (Number.isNaN(pd) || pd < 1 || pd > 31) {
+            alert('发薪日需在 1-31 之间');
+            return;
+        }
+        const ds = parseFloat(dsRaw);
+        if (Number.isNaN(ds) || ds < 0) {
+            alert('日工资需为大于等于 0 的数字');
+            return;
+        }
+        const timeRe = /^([0-1]?[0-9]|2[0-3]):([0-5][0-9])$/;
+        if (!timeRe.test(ws) || !timeRe.test(we)) {
+            alert('上下班时间请使用 HH:mm，例如 09:00');
+            return;
+        }
+        const [sh, sm] = ws.split(':').map((n) => parseInt(n, 10));
+        const [eh, em] = we.split(':').map((n) => parseInt(n, 10));
+        const startMin = sh * 60 + sm;
+        const endMin = eh * 60 + em;
+        if (endMin <= startMin) {
+            alert('下班时间必须晚于上班时间（不支持跨天班次）');
+            return;
+        }
+    }
+
     const newConfig = {
         focusDuration: parseInt(focusInput.value) || 25,
         breakDuration: parseInt(breakInput.value) || 5,
-        openAtLogin: openAtLoginInput.checked
+        openAtLogin: openAtLoginInput.checked,
+        workStartTime: hasAny ? ws : '',
+        workEndTime: hasAny ? we : '',
+        dailySalary: hasAny ? parseFloat(dsRaw) : '',
+        payday: hasAny ? parseInt(pdRaw, 10) : ''
     };
     
     if (newConfig.focusDuration < 1 || newConfig.focusDuration > 120) {
@@ -250,15 +380,7 @@ saveConfigBtn.addEventListener('click', () => {
     }
     
     ipcRenderer.send('save-config', newConfig);
-    config = newConfig;
-    focusDurationDisplay.textContent = config.focusDuration;
-    breakDurationDisplay.textContent = config.breakDuration;
-    
-    if (!timerState.isRunning) {
-        updateTimeDisplay(config.focusDuration * 60);
-    }
-    
-    configModal.classList.remove('show');
+    closeConfigModalPanel();
 });
 
 // 开机自启动：勾选/取消时立即生效，无需点保存
@@ -271,7 +393,7 @@ openAtLoginInput.addEventListener('change', () => {
 // 点击模态框外部关闭
 configModal.addEventListener('click', (e) => {
     if (e.target === configModal) {
-        configModal.classList.remove('show');
+        closeConfigModalPanel();
     }
 });
 
@@ -340,11 +462,17 @@ ipcRenderer.on('sessions-loaded', (event, data) => {
 });
 
 function openRecordModal() {
+    recordModal.style.display = 'flex';
     recordModal.classList.add('show');
     const today = new Date();
     recordDateInput.value = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
     recordQuery = { type: 'day', value: null };
     loadRecordSessions();
+}
+
+function closeRecordModal() {
+    recordModal.classList.remove('show');
+    recordModal.style.display = 'none';
 }
 
 recordBtn.addEventListener('click', openRecordModal);
@@ -355,11 +483,11 @@ ipcRenderer.on('show-record-modal', () => {
 });
 
 recordClose.addEventListener('click', () => {
-    recordModal.classList.remove('show');
+    closeRecordModal();
 });
 
 recordModal.addEventListener('click', (e) => {
-    if (e.target === recordModal) recordModal.classList.remove('show');
+    if (e.target === recordModal) closeRecordModal();
 });
 
 document.querySelectorAll('.record-tab').forEach((tab) => {

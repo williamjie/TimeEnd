@@ -151,7 +151,7 @@ function createMiniWindow() {
   }
   miniWindow = new BrowserWindow({
     width: 250,
-    height: 178,
+    height: 252,
     frame: false,
     resizable: false,
     alwaysOnTop: true,
@@ -425,22 +425,45 @@ ipcMain.on('get-config', (event) => {
   const config = store.get('config', {
     focusDuration: 25,
     breakDuration: 5,
-    openAtLogin: false
+    openAtLogin: false,
+    workStartTime: '',
+    workEndTime: '',
+    dailySalary: '',
+    payday: ''
   });
   event.reply('config-loaded', config);
 });
 
 ipcMain.on('save-config', (event, config) => {
   const prev = store.get('config', {});
-  const next = { ...prev, focusDuration: config.focusDuration, breakDuration: config.breakDuration };
+  const next = {
+    ...prev,
+    focusDuration: config.focusDuration,
+    breakDuration: config.breakDuration
+  };
   if (config.openAtLogin !== undefined) next.openAtLogin = config.openAtLogin;
+  if (config.workStartTime !== undefined) next.workStartTime = String(config.workStartTime).trim();
+  if (config.workEndTime !== undefined) next.workEndTime = String(config.workEndTime).trim();
+  if (config.dailySalary !== undefined) next.dailySalary = config.dailySalary;
+  if (config.payday !== undefined) next.payday = config.payday;
   store.set('config', next);
-  event.reply('config-saved');
+  event.reply('config-saved', next);
+  if (miniWindow && !miniWindow.isDestroyed()) {
+    miniWindow.webContents.send('config-loaded', next);
+  }
 });
 
 // 开机自启动：勾选/取消时立即生效
 ipcMain.on('set-open-at-login', (event, enabled) => {
-  const config = store.get('config', { focusDuration: 25, breakDuration: 5, openAtLogin: false });
+  const config = store.get('config', {
+    focusDuration: 25,
+    breakDuration: 5,
+    openAtLogin: false,
+    workStartTime: '',
+    workEndTime: '',
+    dailySalary: '',
+    payday: ''
+  });
   config.openAtLogin = !!enabled;
   store.set('config', config);
   if (process.platform === 'win32' || process.platform === 'darwin') {
