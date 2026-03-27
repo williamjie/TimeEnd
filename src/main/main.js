@@ -22,6 +22,8 @@ let focusStartTime = null;
 let pendingStopEndTime = null;
 /** 当前中断弹窗模式：'interrupt' 自然结束必填，'stop' 停止后选填 */
 let interruptMode = 'interrupt';
+/** 小窗层级模式：top 始终置顶；bottom 取消置顶尽量不挡住其他窗口 */
+let miniWindowLayerMode = 'top';
 
 function createMainWindow() {
   mainWindow = 
@@ -163,24 +165,47 @@ function positionMiniWindowBottomRight() {
   miniWindow.setPosition(Math.round(px), Math.round(py));
 }
 
+function syncMiniWindowLayerMode() {
+  if (miniWindow && !miniWindow.isDestroyed()) {
+    miniWindow.webContents.send('mini-layer-mode', miniWindowLayerMode);
+  }
+}
+
+function applyMiniWindowLayerMode(mode = 'top') {
+  miniWindowLayerMode = mode === 'bottom' ? 'bottom' : 'top';
+  if (!miniWindow || miniWindow.isDestroyed()) return;
+  if (miniWindowLayerMode === 'top') {
+    miniWindow.setAlwaysOnTop(true, 'screen-saver');
+    if (typeof miniWindow.moveTop === 'function') {
+      miniWindow.moveTop();
+    }
+  } else {
+    miniWindow.setAlwaysOnTop(false);
+    miniWindow.blur();
+  }
+  syncMiniWindowLayerMode();
+}
+
 function createMiniWindow() {
   if (miniWindow && !miniWindow.isDestroyed()) {
+    applyMiniWindowLayerMode(miniWindowLayerMode);
     positionMiniWindowBottomRight();
     miniWindow.focus();
     return;
   }
   miniWindow = new BrowserWindow({
     width: 250,
-    height: 252,
+    height: 284,
     frame: false,
     resizable: false,
-    alwaysOnTop: true,
+    alwaysOnTop: false,
     transparent: false,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false
     }
   });
+  applyMiniWindowLayerMode(miniWindowLayerMode);
   miniWindow.loadFile(path.join(__dirname, '../renderer/mini.html'));
   miniWindow.on('closed', () => {
     miniWindow = null;
@@ -188,6 +213,7 @@ function createMiniWindow() {
   // 同步当前计时、状态、配置、休息到小窗口
   miniWindow.webContents.on('did-finish-load', () => {
     positionMiniWindowBottomRight();
+    syncMiniWindowLayerMode();
     const config = store.get('config', { focusDuration: 25, breakDuration: 5 });
     miniWindow.webContents.send('config-loaded', config);
     miniWindow.webContents.send('rest-state-loaded', restStartTime, frozenRestMinutes);
@@ -533,6 +559,10 @@ ipcMain.on('minimize-to-background', () => {
   if (miniWindow && !miniWindow.isDestroyed()) {
     miniWindow.minimize();
   }
+});
+
+ipcMain.on('set-mini-layer-mode', (event, mode) => {
+  applyMiniWindowLayerMode(mode);
 });
 
 // 退出程序

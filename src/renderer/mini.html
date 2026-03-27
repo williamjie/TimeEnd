@@ -99,8 +99,23 @@
         .mini-footer-extra {
             margin-top: 2px;
         }
+        .mini-footer-layer {
+            width: 100%;
+            gap: 6px;
+        }
         .mini-btn-extra {
             font-size: 0.6em;
+        }
+        .mini-btn-layer {
+            flex: 1;
+            font-size: 0.62em;
+            color: #4b3f92;
+        }
+        .mini-btn-layer.active {
+            background: rgba(255,255,255,1);
+            color: #3c2d82;
+            font-weight: 700;
+            box-shadow: 0 0 0 1px rgba(76, 58, 146, 0.15) inset;
         }
         .mini-btn-quit {
             font-size: 0.6em;
@@ -122,9 +137,9 @@
             font-weight: 600;
             color: rgba(255, 255, 255, 0.97);
             line-height: 1.5;
-            text-align: left;
+            text-align: right;
             white-space: normal;
-            word-break: break-all;
+            word-break: break-word;
         }
     </style>
 </head>
@@ -145,6 +160,10 @@
     <div class="mini-footer">
         <button id="record-btn-mini" class="restore-btn mini-btn-record">📋 记录</button>
         <button id="restore-btn" class="restore-btn">还原</button>
+    </div>
+    <div class="mini-footer mini-footer-layer">
+        <button id="layer-top-btn" class="restore-btn mini-btn-layer">最上层</button>
+        <button id="layer-bottom-btn" class="restore-btn mini-btn-layer">最下层</button>
     </div>
     <div class="mini-footer mini-footer-extra">
         <button id="minimize-to-background-btn" class="restore-btn mini-btn-extra">最小化到后台</button>

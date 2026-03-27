@@ -34,6 +34,8 @@ const pauseBtn = document.getElementById('pause-btn');
 const stopBtn = document.getElementById('stop-btn');
 const recordBtnMini = document.getElementById('record-btn-mini');
 const restoreBtn = document.getElementById('restore-btn');
+const layerTopBtn = document.getElementById('layer-top-btn');
+const layerBottomBtn = document.getElementById('layer-bottom-btn');
 const minimizeToBackgroundBtn = document.getElementById('minimize-to-background-btn');
 const quitAppBtn = document.getElementById('quit-app-btn');
 const salaryLine1 = document.getElementById('salary-mini-line1');
@@ -54,6 +56,7 @@ let isPaused = false;
 let restStartTime = null;
 let restTickId = null;
 let salaryTickId = null;
+let miniLayerMode = 'top';
 
 function formatTime(seconds) {
   const mins = Math.floor(seconds / 60);
@@ -70,6 +73,11 @@ function updateButtons() {
   } else {
     pauseBtn.textContent = '暂停';
   }
+}
+
+function updateLayerButtons() {
+  layerTopBtn.classList.toggle('active', miniLayerMode === 'top');
+  layerBottomBtn.classList.toggle('active', miniLayerMode === 'bottom');
 }
 
 function refreshSalaryMini() {
@@ -185,6 +193,11 @@ ipcRenderer.on('rest-frozen', (event, minutes) => {
   freezeRest(minutes);
 });
 
+ipcRenderer.on('mini-layer-mode', (event, mode) => {
+  miniLayerMode = mode === 'bottom' ? 'bottom' : 'top';
+  updateLayerButtons();
+});
+
 startBtn.addEventListener('click', () => {
   ipcRenderer.send('start-timer', miniConfig.focusDuration || 25);
 });
@@ -211,6 +224,14 @@ restoreBtn.addEventListener('click', () => {
   ipcRenderer.send('restore-from-mini');
 });
 
+layerTopBtn.addEventListener('click', () => {
+  ipcRenderer.send('set-mini-layer-mode', 'top');
+});
+
+layerBottomBtn.addEventListener('click', () => {
+  ipcRenderer.send('set-mini-layer-mode', 'bottom');
+});
+
 minimizeToBackgroundBtn.addEventListener('click', () => {
   ipcRenderer.send('minimize-to-background');
 });
@@ -221,4 +242,5 @@ quitAppBtn.addEventListener('click', () => {
   }
 });
 
+updateLayerButtons();
 startSalaryTick();
