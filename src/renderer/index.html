@@ -39,6 +39,10 @@
                 <span id="rest-minutes" class="stat-value rest-value">0</span>
                 <span class="stat-unit">分钟</span>
             </div>
+            <div id="rest-remaining-item" class="stat-item rest-stat" style="display: none;">
+                <span class="stat-label">休息剩余</span>
+                <span id="rest-remaining" class="stat-value rest-value">00:00</span>
+            </div>
         </div>
 
         <div class="salary-section" id="salary-section">
@@ -90,6 +94,12 @@
                 <div class="form-group">
                     <label for="break-input">休息时长（分钟）:</label>
                     <input type="number" id="break-input" min="1" max="60" value="5">
+                </div>
+                <div class="form-group form-group-checkbox">
+                    <label>
+                        <input type="checkbox" id="auto-start-next-focus-input">
+                        休息结束后自动开始下一次专注
+                    </label>
                 </div>
                 <div class="form-group form-group-checkbox">
                     <label>

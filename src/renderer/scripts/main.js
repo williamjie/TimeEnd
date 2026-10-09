@@ -25,6 +25,16 @@ try {
     }
 }
 
+let formatRestRemaining;
+let restFinishedUi;
+let restCountdownControls;
+let restStateLoadedUi;
+try {
+    ({ formatRestRemaining, restFinishedUi, restCountdownControls, restStateLoadedUi } = require('./scripts/restDisplay'));
+} catch (primaryError) {
+    ({ formatRestRemaining, restFinishedUi, restCountdownControls, restStateLoadedUi } = require('./restDisplay'));
+}
+
 let timerState = {
     isRunning: false,
     isPaused: false,
@@ -35,6 +45,7 @@ let config = {
     focusDuration: 25,
     breakDuration: 5,
     openAtLogin: false,
+    autoStartNextFocus: false,
     workStartTime: '',
     workEndTime: '',
     dailySalary: '',
@@ -65,6 +76,7 @@ const saveConfigBtn = document.getElementById('save-config-btn');
 const cancelConfigBtn = document.getElementById('cancel-config-btn');
 const focusInput = document.getElementById('focus-input');
 const breakInput = document.getElementById('break-input');
+const autoStartNextFocusInput = document.getElementById('auto-start-next-focus-input');
 const openAtLoginInput = document.getElementById('open-at-login-input');
 const workStartInput = document.getElementById('work-start-input');
 const workEndInput = document.getElementById('work-end-input');
@@ -77,6 +89,8 @@ const focusDurationDisplay = document.getElementById('focus-duration');
 const breakDurationDisplay = document.getElementById('break-duration');
 const restStatItem = document.getElementById('rest-stat-item');
 const restMinutesEl = document.getElementById('rest-minutes');
+const restRemainingItem = document.getElementById('rest-remaining-item');
+const restRemainingEl = document.getElementById('rest-remaining');
 const minimizeBtn = document.getElementById('minimize-btn');
 const recordBtn = document.getElementById('record-btn');
 const recordModal = document.getElementById('record-modal');
@@ -98,6 +112,7 @@ ipcRenderer.on('config-loaded', (event, loadedConfig) => {
     focusInput.value = config.focusDuration;
     breakInput.value = config.breakDuration;
     openAtLoginInput.checked = !!config.openAtLogin;
+    autoStartNextFocusInput.checked = !!config.autoStartNextFocus;
     focusDurationDisplay.textContent = config.focusDuration;
     breakDurationDisplay.textContent = config.breakDuration;
     workStartInput.value = config.workStartTime != null ? config.workStartTime : '';
@@ -113,6 +128,7 @@ ipcRenderer.on('config-saved', (event, fullConfig) => {
     focusInput.value = config.focusDuration;
     breakInput.value = config.breakDuration;
     openAtLoginInput.checked = !!config.openAtLogin;
+    autoStartNextFocusInput.checked = !!config.autoStartNextFocus;
     workStartInput.value = config.workStartTime != null ? config.workStartTime : '';
     workEndInput.value = config.workEndTime != null ? config.workEndTime : '';
     dailySalaryInput.value = config.dailySalary !== '' && config.dailySalary != null ? config.dailySalary : '';
@@ -142,6 +158,14 @@ ipcRenderer.on('rest-started', (event, startTimestamp) => {
     startRestTick(startTimestamp);
 });
 
+ipcRenderer.on('rest-remaining', (event, remainingSeconds) => {
+    showRestRemaining(remainingSeconds);
+});
+
+ipcRenderer.on('rest-finished', (event, payload) => {
+    applyRestFinished(payload && payload.autoStarted);
+});
+
 // 休息清零（再次开始专注时，或停止时先清零再开始新休息）
 ipcRenderer.on('rest-cleared', () => {
     clearRest();
@@ -153,11 +177,23 @@ ipcRenderer.on('rest-frozen', (event, minutes) => {
 });
 
 // 页面加载时恢复休息状态（如窗口刷新）
-ipcRenderer.on('rest-state-loaded', (event, startTimestamp, frozenMinutes) => {
-    if (startTimestamp != null) {
+ipcRenderer.on('rest-state-loaded', (event, startTimestamp, frozenMinutes, remainingSeconds, restFinishedStandby, elapsedMinutes) => {
+    const ui = restStateLoadedUi({
+        startTimestamp,
+        frozenMinutes,
+        remainingSeconds,
+        restFinishedStandby,
+        elapsedMinutes
+    });
+    if (ui.mode === 'elapsed') {
         startRestTick(startTimestamp);
-    } else if (frozenMinutes != null) {
+        if (ui.remaining.show) {
+            showRestRemaining(remainingSeconds);
+        }
+    } else if (ui.mode === 'frozen') {
         freezeRest(frozenMinutes);
+    } else if (ui.mode === 'finished-standby') {
+        restoreFinishedStandby(ui.elapsedMinutes);
     } else {
         clearRest();
     }
@@ -193,6 +229,15 @@ function startSalaryTick() {
 function startRestTick(startTimestamp) {
     restStartTime = startTimestamp;
     restStatItem.style.display = 'flex';
+    const controls = restCountdownControls({ isPaused: timerState.isPaused });
+    if (controls) {
+        timerState.isRunning = controls.isRunning;
+        startBtn.disabled = !controls.startEnabled;
+        pauseBtn.disabled = !controls.pauseEnabled;
+        stopBtn.disabled = !controls.stopEnabled;
+        statusText.textContent = '休息中';
+        statusText.className = 'status-text resting';
+    }
     function tick() {
         if (restStartTime == null) return;
         const elapsedMs = Date.now() - restStartTime;
@@ -205,6 +250,65 @@ function startRestTick(startTimestamp) {
 }
 
 // 休息清零：隐藏并停止计时
+function hideRestRemaining() {
+    if (restRemainingItem) {
+        restRemainingItem.style.display = 'none';
+    }
+    if (restRemainingEl) {
+        restRemainingEl.textContent = formatRestRemaining(0);
+    }
+}
+
+function showRestRemaining(remainingSeconds) {
+    if (!restRemainingItem || !restRemainingEl) return;
+    restRemainingItem.style.display = 'flex';
+    restRemainingEl.textContent = formatRestRemaining(remainingSeconds);
+}
+
+function applyRestFinished(autoStarted) {
+    const ui = restFinishedUi({ autoStarted: !!autoStarted });
+    hideRestRemaining();
+    startBtn.disabled = !ui.startEnabled;
+    pauseBtn.disabled = !ui.pauseEnabled;
+    stopBtn.disabled = !ui.stopEnabled;
+    if (ui.keepElapsed) {
+        if (restTickId) {
+            clearInterval(restTickId);
+            restTickId = null;
+        }
+        restStatItem.style.display = 'flex';
+        statusText.textContent = ui.status;
+        statusText.className = 'status-text resting';
+        timerState.isRunning = false;
+        timerState.isPaused = false;
+    } else {
+        clearRest();
+        statusText.textContent = ui.status;
+        statusText.className = 'status-text focusing';
+        timerState.isRunning = true;
+        timerState.isPaused = false;
+    }
+}
+
+function restoreFinishedStandby(elapsedMinutes) {
+    if (restTickId) {
+        clearInterval(restTickId);
+        restTickId = null;
+    }
+    restStartTime = null;
+    hideRestRemaining();
+    restStatItem.style.display = 'flex';
+    restMinutesEl.textContent = elapsedMinutes == null ? '0' : String(elapsedMinutes);
+    const ui = restFinishedUi({ autoStarted: false });
+    statusText.textContent = ui.status;
+    statusText.className = 'status-text resting';
+    timerState.isRunning = false;
+    timerState.isPaused = false;
+    startBtn.disabled = !ui.startEnabled;
+    pauseBtn.disabled = !ui.pauseEnabled;
+    stopBtn.disabled = !ui.stopEnabled;
+}
+
 function clearRest() {
     restStartTime = null;
     if (restTickId) {
@@ -213,6 +317,7 @@ function clearRest() {
     }
     restStatItem.style.display = 'none';
     restMinutesEl.textContent = '0';
+    hideRestRemaining();
 }
 
 // 休息冻结：暂停结束后保留当前分钟数，停止后再清零
@@ -224,6 +329,7 @@ function freezeRest(minutes) {
     }
     restStatItem.style.display = 'flex';
     restMinutesEl.textContent = minutes;
+    hideRestRemaining();
 }
 
 // 格式化时间显示
@@ -299,6 +405,7 @@ function openConfigModal() {
     configModal.classList.add('show');
     focusInput.value = config.focusDuration;
     breakInput.value = config.breakDuration;
+    autoStartNextFocusInput.checked = !!config.autoStartNextFocus;
     workStartInput.value = config.workStartTime != null ? config.workStartTime : '';
     workEndInput.value = config.workEndTime != null ? config.workEndTime : '';
     dailySalaryInput.value = config.dailySalary !== '' && config.dailySalary != null ? config.dailySalary : '';
@@ -363,6 +470,7 @@ saveConfigBtn.addEventListener('click', () => {
         focusDuration: parseInt(focusInput.value) || 25,
         breakDuration: parseInt(breakInput.value) || 5,
         openAtLogin: openAtLoginInput.checked,
+        autoStartNextFocus: autoStartNextFocusInput.checked,
         workStartTime: hasAny ? ws : '',
         workEndTime: hasAny ? we : '',
         dailySalary: hasAny ? parseFloat(dsRaw) : '',
@@ -480,6 +588,11 @@ recordBtn.addEventListener('click', openRecordModal);
 // 小窗口点击「记录」时由主进程通知打开记录弹窗
 ipcRenderer.on('show-record-modal', () => {
     openRecordModal();
+});
+
+// 小窗口点击「设置」时由主进程通知打开设置弹窗
+ipcRenderer.on('show-config-modal', () => {
+    openConfigModal();
 });
 
 recordClose.addEventListener('click', () => {

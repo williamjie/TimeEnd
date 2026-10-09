@@ -79,7 +79,8 @@
         .mini-footer {
             -webkit-app-region: no-drag;
             display: flex;
-            gap: 8px;
+            flex-wrap: wrap;
+            gap: 6px;
             margin-top: 4px;
             justify-content: center;
         }
@@ -147,6 +148,7 @@
     <div id="time-display" class="time-text">25:00</div>
     <div id="status-text" class="status-text">准备就绪</div>
     <div id="rest-row" class="rest-row">本次休息：<span id="rest-minutes">0</span> 分钟</div>
+    <div id="rest-remaining-row" class="rest-row">休息剩余：<span id="rest-remaining">00:00</span></div>
     <div class="mini-btns">
         <button type="button" id="start-btn" class="mini-btn mini-btn-start">开始</button>
         <button type="button" id="pause-btn" class="mini-btn mini-btn-pause" disabled>暂停</button>
@@ -159,6 +161,7 @@
     </div>
     <div class="mini-footer">
         <button id="record-btn-mini" class="restore-btn mini-btn-record">📋 记录</button>
+        <button id="settings-btn-mini" class="restore-btn mini-btn-record">⚙️ 设置</button>
         <button id="restore-btn" class="restore-btn">还原</button>
     </div>
     <div class="mini-footer mini-footer-layer">

@@ -3,19 +3,39 @@ const path = require('path');
 const Timer = require('./timer');
 const Store = require('electron-store');
 const sessionStore = require('./sessionStore');
+const { defaultConfig, mergeSavedConfig } = require('./configDefaults');
+const {
+  decideOnRestFinished,
+  shouldBeginRestAfterInterrupt,
+  shouldBeginRestOnFocusComplete,
+  saveRestIfAny,
+  shouldShowWorkPrompt,
+  miniStatusWhenRestBegins,
+  nextRestFinishedStandby,
+  buildRestStatePayload,
+  elapsedRestMinutes
+} = require('./restLifecycle');
+const { shouldOpenWorkPrompt, workPromptWindowOptions } = require('./workPrompt');
+const { planOpenSettingsFromMini } = require('./openFromMini');
 
 const store = new Store();
 
 let mainWindow = null;
 let interruptWindow = null;
 let miniWindow = null; // 最小化时仅显示时间的小窗口
+let workPromptWindow = null;
 let timer = null;
+let restTimer = null;
 /** 休息开始时间戳，null 表示未在休息；结束/停止后设置，开始专注时清零 */
 let restStartTime = null;
 /** 暂停期间的休息开始时间，用于暂停时也显示本次休息；继续时冻结显示，停止时清零 */
 let pauseRestStartTime = null;
 /** 继续后冻结的休息分钟数（停止前保留），用于窗口加载时恢复显示 */
 let frozenRestMinutes = null;
+/** 休息倒计时自然结束且未自动开始时，保持待命文案可被窗口重建恢复 */
+let restFinishedStandby = false;
+/** 进入 finished-standby 时冻结的「本次休息」分钟数 */
+let lastRestElapsedMinutes = null;
 /** 当前专注开始时间戳，用于写入专注记录 */
 let focusStartTime = null;
 /** 用户点击「停止」后暂存的结束时间，弹窗提交/关闭后用于写入专注记录 */
@@ -24,6 +44,175 @@ let pendingStopEndTime = null;
 let interruptMode = 'interrupt';
 /** 小窗层级模式：top 始终置顶；bottom 取消置顶尽量不挡住其他窗口 */
 let miniWindowLayerMode = 'top';
+
+function sendToWindows(channel, ...args) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(channel, ...args);
+  }
+  if (miniWindow && !miniWindow.isDestroyed()) {
+    miniWindow.webContents.send(channel, ...args);
+  }
+}
+
+function interruptIsOpen() {
+  return !!(interruptWindow && !interruptWindow.isDestroyed());
+}
+
+function focusIsRunning() {
+  return !!(timer && timer.isRunning);
+}
+
+function stopRestTimer() {
+  if (restTimer) {
+    restTimer.stop();
+    restTimer = null;
+  }
+}
+
+function clearRestFinishedStandby() {
+  restFinishedStandby = false;
+  lastRestElapsedMinutes = null;
+}
+
+function currentRestStatePayload() {
+  const remaining = restTimer ? restTimer.getRemaining() : null;
+  return buildRestStatePayload({
+    restStartTime,
+    frozenRestMinutes,
+    remainingSeconds: remaining,
+    restFinishedStandby,
+    lastRestElapsedMinutes
+  });
+}
+
+function sendRestStateTo(target) {
+  if (!target || target.isDestroyed()) return;
+  const payload = currentRestStatePayload();
+  target.webContents.send(
+    'rest-state-loaded',
+    payload.restStartTime,
+    payload.frozenRestMinutes,
+    payload.remainingSeconds,
+    payload.restFinishedStandby,
+    payload.lastRestElapsedMinutes
+  );
+}
+
+function startRestCountdown() {
+  if (!shouldBeginRestAfterInterrupt({
+    interruptOpen: interruptIsOpen(),
+    focusRunning: focusIsRunning()
+  })) {
+    return;
+  }
+  stopRestTimer();
+  clearRestFinishedStandby();
+  restStartTime = Date.now();
+  sendToWindows('rest-started', restStartTime);
+  const config = store.get('config', defaultConfig());
+  const minutes = config.breakDuration || 5;
+  restTimer = new Timer(minutes, (remaining) => {
+    sendToWindows('rest-remaining', remaining);
+  }, () => {
+    onRestFinished();
+  });
+  restTimer.start();
+  sendToWindows('rest-remaining', restTimer.getRemaining());
+  sendToWindows('mini-status', miniStatusWhenRestBegins());
+}
+
+function persistRestIfAny() {
+  const saved = saveRestIfAny({
+    restStartTime,
+    endTime: Date.now(),
+    id: restStartTime == null ? 'rest-none' : `rest-${restStartTime}-${Math.random().toString(36).slice(2, 9)}`,
+    append: (session) => sessionStore.appendRestSession(session)
+  });
+  restStartTime = saved.restStartTime;
+}
+
+function onRestFinished() {
+  const config = store.get('config', defaultConfig());
+  const decision = decideOnRestFinished({
+    interruptOpen: interruptIsOpen(),
+    focusRunning: focusIsRunning(),
+    autoStartNextFocus: !!config.autoStartNextFocus
+  });
+  if (decision.action === 'skip') {
+    return;
+  }
+  stopRestTimer();
+  const enterStandby = nextRestFinishedStandby(decision);
+  if (enterStandby) {
+    lastRestElapsedMinutes = elapsedRestMinutes({
+      restStartTime,
+      now: Date.now()
+    });
+    restFinishedStandby = true;
+  } else {
+    clearRestFinishedStandby();
+  }
+  if (decision.persistRest) {
+    persistRestIfAny();
+  }
+  const autoStarted = decision.action === 'auto-start';
+  sendToWindows('rest-finished', { autoStarted });
+  if (autoStarted) {
+    startFocusTimer(config.focusDuration || 25);
+    if (shouldShowWorkPrompt({ autoStartNextFocus: true, naturalRestComplete: true })) {
+      createWorkPromptWindow();
+    }
+  }
+}
+
+function startFocusTimer(duration) {
+  stopRestTimer();
+  persistRestIfAny();
+  clearRestFinishedStandby();
+  frozenRestMinutes = null;
+  sendToWindows('rest-cleared');
+  focusStartTime = Date.now();
+  if (timer) {
+    timer.stop();
+  }
+  timer = new Timer(duration, (remaining) => {
+    sendToWindows('timer-update', remaining);
+  }, () => {
+    frozenRestMinutes = null;
+    if (timer) {
+      timer.stop();
+      timer = null;
+    }
+    if (shouldBeginRestOnFocusComplete()) {
+      startRestCountdown();
+    }
+    createInterruptWindow();
+  });
+  timer.start();
+  sendToWindows('timer-update', timer.getRemaining());
+}
+
+function createWorkPromptWindow() {
+  const alreadyOpen = !!(workPromptWindow && !workPromptWindow.isDestroyed());
+  if (!shouldOpenWorkPrompt({ alreadyOpen })) {
+    if (alreadyOpen) {
+      workPromptWindow.focus();
+    }
+    return;
+  }
+  const opts = workPromptWindowOptions();
+  workPromptWindow = new BrowserWindow({
+    ...opts,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false
+    }
+  });
+  workPromptWindow.loadFile(path.join(__dirname, '../renderer/work-prompt.html'));
+  workPromptWindow.on('closed', () => {
+    workPromptWindow = null;
+  });
+}
 
 function createMainWindow() {
   mainWindow = 
@@ -137,13 +326,7 @@ function runStopAftermath(inputContent) {
   if (miniWindow && !miniWindow.isDestroyed()) {
     miniWindow.webContents.send('rest-cleared');
   }
-  restStartTime = Date.now();
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('rest-started', restStartTime);
-  }
-  if (miniWindow && !miniWindow.isDestroyed()) {
-    miniWindow.webContents.send('rest-started', restStartTime);
-  }
+  startRestCountdown();
 }
 
 /** 将小窗放在主窗口所在显示器工作区右下角（留出边距） */
@@ -194,8 +377,8 @@ function createMiniWindow() {
     return;
   }
   miniWindow = new BrowserWindow({
-    width: 250,
-    height: 284,
+    width: 260,
+    height: 304,
     frame: false,
     resizable: false,
     alwaysOnTop: false,
@@ -214,9 +397,9 @@ function createMiniWindow() {
   miniWindow.webContents.on('did-finish-load', () => {
     positionMiniWindowBottomRight();
     syncMiniWindowLayerMode();
-    const config = store.get('config', { focusDuration: 25, breakDuration: 5 });
+    const config = store.get('config', defaultConfig());
     miniWindow.webContents.send('config-loaded', config);
-    miniWindow.webContents.send('rest-state-loaded', restStartTime, frozenRestMinutes);
+    sendRestStateTo(miniWindow);
     if (timer) {
       miniWindow.webContents.send('timer-update', timer.getRemaining());
       miniWindow.webContents.send('mini-status', { isRunning: true, isPaused: timer.isPaused });
@@ -241,7 +424,7 @@ app.whenReady().then(() => {
     }
   }
   // 应用启动时同步开机自启动设置
-  const config = store.get('config', { focusDuration: 25, breakDuration: 5, openAtLogin: false });
+  const config = store.get('config', defaultConfig());
   if (process.platform === 'win32' || process.platform === 'darwin') {
     try {
       app.setLoginItemSettings({ openAtLogin: !!config.openAtLogin });
@@ -264,17 +447,8 @@ app.on('window-all-closed', () => {
   }
 });
 
-// 写入休息记录（在点击「开始」专注时调用，restStartTime 存在则写一条）
 function saveRestSessionIfAny() {
-  if (restStartTime == null) return;
-  const endTime = Date.now();
-  const durationMinutes = Math.round((endTime - restStartTime) / 60000);
-  sessionStore.appendRestSession({
-    id: `rest-${restStartTime}-${Math.random().toString(36).slice(2, 9)}`,
-    startTime: restStartTime,
-    endTime,
-    durationMinutes
-  });
+  persistRestIfAny();
 }
 
 // 写入专注记录
@@ -331,44 +505,7 @@ function getSessionsInRange(type, value) {
 
 // IPC 通信处理
 ipcMain.on('start-timer', (event, duration) => {
-  // 再次开始专注前：写入本次休息记录并清零
-  saveRestSessionIfAny();
-  restStartTime = null;
-  frozenRestMinutes = null;
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('rest-cleared');
-  }
-  if (miniWindow && !miniWindow.isDestroyed()) {
-    miniWindow.webContents.send('rest-cleared');
-  }
-  focusStartTime = Date.now();
-  if (timer) {
-    timer.stop();
-  }
-  timer = new Timer(duration, (remaining) => {
-    if (miniWindow && !miniWindow.isDestroyed()) {
-      miniWindow.webContents.send('timer-update', remaining);
-    }
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('timer-update', remaining);
-    }
-  }, () => {
-    // 计时结束回调：开始记录休息时间
-    frozenRestMinutes = null;
-    restStartTime = Date.now();
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('rest-started', restStartTime);
-    }
-    if (miniWindow && !miniWindow.isDestroyed()) {
-      miniWindow.webContents.send('rest-started', restStartTime);
-    }
-    createInterruptWindow();
-    if (timer) {
-      timer.stop();
-      timer = null;
-    }
-  });
-  timer.start();
+  startFocusTimer(duration);
 });
 
 ipcMain.on('pause-timer', () => {
@@ -439,10 +576,7 @@ ipcMain.on('interrupt-submitted', (event, inputText) => {
     lastDate: new Date().toDateString()
   });
 
-  const config = store.get('config', {
-    focusDuration: 25,
-    breakDuration: 5
-  });
+  const config = store.get('config', defaultConfig());
 
   stats.completedSessions += 1;
   stats.todayMinutes += config.focusDuration;
@@ -459,6 +593,7 @@ ipcMain.on('interrupt-submitted', (event, inputText) => {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('stats-updated', stats);
   }
+  startRestCountdown();
 });
 
 ipcMain.on('close-interrupt', (event, hasInput) => {
@@ -469,30 +604,13 @@ ipcMain.on('close-interrupt', (event, hasInput) => {
 });
 
 ipcMain.on('get-config', (event) => {
-  const config = store.get('config', {
-    focusDuration: 25,
-    breakDuration: 5,
-    openAtLogin: false,
-    workStartTime: '',
-    workEndTime: '',
-    dailySalary: '',
-    payday: ''
-  });
-  event.reply('config-loaded', config);
+  const config = store.get('config', defaultConfig());
+  event.reply('config-loaded', mergeSavedConfig(defaultConfig(), config));
 });
 
 ipcMain.on('save-config', (event, config) => {
-  const prev = store.get('config', {});
-  const next = {
-    ...prev,
-    focusDuration: config.focusDuration,
-    breakDuration: config.breakDuration
-  };
-  if (config.openAtLogin !== undefined) next.openAtLogin = config.openAtLogin;
-  if (config.workStartTime !== undefined) next.workStartTime = String(config.workStartTime).trim();
-  if (config.workEndTime !== undefined) next.workEndTime = String(config.workEndTime).trim();
-  if (config.dailySalary !== undefined) next.dailySalary = config.dailySalary;
-  if (config.payday !== undefined) next.payday = config.payday;
+  const prev = store.get('config', defaultConfig());
+  const next = mergeSavedConfig(prev, config);
   store.set('config', next);
   event.reply('config-saved', next);
   if (miniWindow && !miniWindow.isDestroyed()) {
@@ -502,15 +620,7 @@ ipcMain.on('save-config', (event, config) => {
 
 // 开机自启动：勾选/取消时立即生效
 ipcMain.on('set-open-at-login', (event, enabled) => {
-  const config = store.get('config', {
-    focusDuration: 25,
-    breakDuration: 5,
-    openAtLogin: false,
-    workStartTime: '',
-    workEndTime: '',
-    dailySalary: '',
-    payday: ''
-  });
+  const config = store.get('config', defaultConfig());
   config.openAtLogin = !!enabled;
   store.set('config', config);
   if (process.platform === 'win32' || process.platform === 'darwin') {
@@ -534,7 +644,22 @@ ipcMain.on('get-stats', (event) => {
 
 // 获取当前休息状态（用于窗口刷新后恢复显示）
 ipcMain.on('get-rest-state', (event) => {
-  event.reply('rest-state-loaded', restStartTime);
+  const payload = currentRestStatePayload();
+  event.reply(
+    'rest-state-loaded',
+    payload.restStartTime,
+    payload.frozenRestMinutes,
+    payload.remainingSeconds,
+    payload.restFinishedStandby,
+    payload.lastRestElapsedMinutes
+  );
+});
+
+ipcMain.on('close-work-prompt', () => {
+  if (workPromptWindow && !workPromptWindow.isDestroyed()) {
+    workPromptWindow.destroy();
+    workPromptWindow = null;
+  }
 });
 
 // 进入最小化：隐藏主窗口，显示仅时间的小窗口
@@ -552,6 +677,15 @@ ipcMain.on('open-record-from-mini', () => {
     mainWindow.focus();
     mainWindow.webContents.send('show-record-modal');
   }
+});
+
+// 小窗口点击「设置」：显示主窗口并打开设置弹窗（不销毁小窗）
+ipcMain.on('open-settings-from-mini', () => {
+  const plan = planOpenSettingsFromMini();
+  if (!plan.showMainWindow || !mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.show();
+  if (plan.focusMainWindow) mainWindow.focus();
+  mainWindow.webContents.send(plan.mainRendererEvent);
 });
 
 // 最小化到后台：小窗口最小化到任务栏
@@ -581,8 +715,8 @@ ipcMain.on('restore-from-mini', () => {
     mainWindow.focus();
     if (timer) {
       mainWindow.webContents.send('timer-update', timer.getRemaining());
-      mainWindow.webContents.send('rest-state-loaded', restStartTime, frozenRestMinutes);
     }
+    sendRestStateTo(mainWindow);
   }
 });
 

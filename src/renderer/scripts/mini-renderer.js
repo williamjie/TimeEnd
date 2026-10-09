@@ -25,14 +25,27 @@ try {
   }
 }
 
+let formatRestRemaining;
+let restFinishedUi;
+let restRemainingUi;
+let restStateLoadedUi;
+try {
+  ({ formatRestRemaining, restFinishedUi, restRemainingUi, restStateLoadedUi } = require('./scripts/restDisplay'));
+} catch (primaryError) {
+  ({ formatRestRemaining, restFinishedUi, restRemainingUi, restStateLoadedUi } = require('./restDisplay'));
+}
+
 const timeDisplay = document.getElementById('time-display');
 const statusText = document.getElementById('status-text');
 const restRow = document.getElementById('rest-row');
 const restMinutesEl = document.getElementById('rest-minutes');
+const restRemainingRow = document.getElementById('rest-remaining-row');
+const restRemainingEl = document.getElementById('rest-remaining');
 const startBtn = document.getElementById('start-btn');
 const pauseBtn = document.getElementById('pause-btn');
 const stopBtn = document.getElementById('stop-btn');
 const recordBtnMini = document.getElementById('record-btn-mini');
+const settingsBtnMini = document.getElementById('settings-btn-mini');
 const restoreBtn = document.getElementById('restore-btn');
 const layerTopBtn = document.getElementById('layer-top-btn');
 const layerBottomBtn = document.getElementById('layer-bottom-btn');
@@ -54,6 +67,7 @@ let miniConfig = {
 let isRunning = false;
 let isPaused = false;
 let restStartTime = null;
+let restFinishedStandby = false;
 let restTickId = null;
 let salaryTickId = null;
 let miniLayerMode = 'top';
@@ -100,6 +114,7 @@ function startSalaryTick() {
 }
 
 function startRestTick(startTimestamp) {
+  restFinishedStandby = false;
   restStartTime = startTimestamp;
   restRow.classList.add('show');
   function tick() {
@@ -112,17 +127,75 @@ function startRestTick(startTimestamp) {
   restTickId = setInterval(tick, 1000);
 }
 
+function hideRestRemaining() {
+  if (!restRemainingRow || !restRemainingEl) return;
+  restRemainingRow.classList.remove('show');
+  restRemainingEl.textContent = formatRestRemaining(0);
+}
+
+function showRestRemaining(remainingSeconds) {
+  if (!restRemainingRow || !restRemainingEl) return;
+  const ui = restRemainingUi(remainingSeconds);
+  restRemainingEl.textContent = ui.text;
+  restRemainingRow.classList.toggle('show', ui.show);
+}
+
+function applyRestFinished(autoStarted) {
+  const ui = restFinishedUi({ autoStarted: !!autoStarted });
+  hideRestRemaining();
+  isRunning = !ui.startEnabled;
+  isPaused = false;
+  if (ui.keepElapsed) {
+    restFinishedStandby = true;
+    if (restTickId) {
+      clearInterval(restTickId);
+      restTickId = null;
+    }
+    restRow.classList.add('show');
+    statusText.textContent = ui.status;
+    statusText.className = 'status-text';
+    updateButtons();
+  } else {
+    restFinishedStandby = false;
+    clearRest();
+    statusText.textContent = ui.status;
+    statusText.className = 'status-text focusing';
+    updateButtons();
+  }
+}
+
+function restoreFinishedStandby(elapsedMinutes) {
+  restFinishedStandby = true;
+  restStartTime = null;
+  if (restTickId) {
+    clearInterval(restTickId);
+    restTickId = null;
+  }
+  hideRestRemaining();
+  restRow.classList.add('show');
+  restMinutesEl.textContent = elapsedMinutes == null ? '0' : String(elapsedMinutes);
+  const ui = restFinishedUi({ autoStarted: false });
+  isRunning = !ui.startEnabled;
+  isPaused = false;
+  statusText.textContent = ui.status;
+  statusText.className = 'status-text';
+  updateButtons();
+}
+
 function clearRest() {
   restStartTime = null;
+  restFinishedStandby = false;
   if (restTickId) {
     clearInterval(restTickId);
     restTickId = null;
   }
   restRow.classList.remove('show');
   restMinutesEl.textContent = '0';
+  hideRestRemaining();
 }
 
 function freezeRest(minutes) {
+  restFinishedStandby = false;
   restStartTime = null;
   if (restTickId) {
     clearInterval(restTickId);
@@ -130,6 +203,7 @@ function freezeRest(minutes) {
   }
   restRow.classList.add('show');
   restMinutesEl.textContent = minutes;
+  hideRestRemaining();
 }
 
 ipcRenderer.on('config-loaded', (event, cfg) => {
@@ -142,17 +216,30 @@ ipcRenderer.on('config-loaded', (event, cfg) => {
   startSalaryTick();
 });
 
-ipcRenderer.on('rest-state-loaded', (event, startTimestamp, frozenMinutes) => {
-  if (startTimestamp != null) {
+ipcRenderer.on('rest-state-loaded', (event, startTimestamp, frozenMinutes, remainingSeconds, finishedStandby, elapsedMinutes) => {
+  const ui = restStateLoadedUi({
+    startTimestamp,
+    frozenMinutes,
+    remainingSeconds,
+    restFinishedStandby: finishedStandby,
+    elapsedMinutes
+  });
+  if (ui.mode === 'elapsed') {
     startRestTick(startTimestamp);
-  } else if (frozenMinutes != null) {
+    if (ui.remaining.show) {
+      showRestRemaining(remainingSeconds);
+    }
+  } else if (ui.mode === 'frozen') {
     freezeRest(frozenMinutes);
+  } else if (ui.mode === 'finished-standby') {
+    restoreFinishedStandby(ui.elapsedMinutes);
   } else {
     clearRest();
   }
 });
 
 ipcRenderer.on('timer-update', (event, remaining) => {
+  restFinishedStandby = false;
   timeDisplay.textContent = formatTime(remaining);
   if (!statusText.classList.contains('focusing')) {
     statusText.textContent = '专注中';
@@ -168,7 +255,11 @@ ipcRenderer.on('mini-status', (event, { isRunning: running, isPaused: paused }) 
   isPaused = paused;
   const fd = miniConfig.focusDuration != null ? miniConfig.focusDuration : 25;
   if (!running) {
-    statusText.textContent = '准备就绪';
+    if (restFinishedStandby) {
+      statusText.textContent = restFinishedUi({ autoStarted: false }).status;
+    } else {
+      statusText.textContent = restStartTime != null ? '休息中' : '准备就绪';
+    }
     statusText.className = 'status-text';
     timeDisplay.textContent = formatTime(fd * 60);
   } else if (paused) {
@@ -183,6 +274,14 @@ ipcRenderer.on('mini-status', (event, { isRunning: running, isPaused: paused }) 
 
 ipcRenderer.on('rest-started', (event, startTimestamp) => {
   startRestTick(startTimestamp);
+});
+
+ipcRenderer.on('rest-remaining', (event, remainingSeconds) => {
+  showRestRemaining(remainingSeconds);
+});
+
+ipcRenderer.on('rest-finished', (event, payload) => {
+  applyRestFinished(payload && payload.autoStarted);
 });
 
 ipcRenderer.on('rest-cleared', () => {
@@ -218,6 +317,10 @@ stopBtn.addEventListener('click', () => {
 
 recordBtnMini.addEventListener('click', () => {
   ipcRenderer.send('open-record-from-mini');
+});
+
+settingsBtnMini.addEventListener('click', () => {
+  ipcRenderer.send('open-settings-from-mini');
 });
 
 restoreBtn.addEventListener('click', () => {
