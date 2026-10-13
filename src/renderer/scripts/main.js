@@ -35,6 +35,22 @@ try {
     ({ formatRestRemaining, restFinishedUi, restCountdownControls, restStateLoadedUi } = require('./restDisplay'));
 }
 
+let parseDateInput;
+let formatDateYmd;
+try {
+    ({ parseDateInput, formatDateYmd } = require('./scripts/recordDateFilter'));
+} catch (primaryError) {
+    ({ parseDateInput, formatDateYmd } = require('./recordDateFilter'));
+}
+
+let formatMatterSummary;
+let MAIN_SUMMARY_MAX;
+try {
+    ({ formatMatterSummary, MAIN_SUMMARY_MAX } = require('./scripts/focusMatterDisplay'));
+} catch (primaryError) {
+    ({ formatMatterSummary, MAIN_SUMMARY_MAX } = require('./focusMatterDisplay'));
+}
+
 let timerState = {
     isRunning: false,
     isPaused: false,
@@ -97,9 +113,20 @@ const recordModal = document.getElementById('record-modal');
 const recordClose = document.querySelector('.record-close');
 const recordListEl = document.getElementById('record-list');
 const recordDateInput = document.getElementById('record-date');
+const recordDateText = document.getElementById('record-date-text');
 const recordFocusCount = document.getElementById('record-focus-count');
 const recordFocusMin = document.getElementById('record-focus-min');
 const recordRestMin = document.getElementById('record-rest-min');
+const focusMatterBtn = document.getElementById('focus-matter-btn');
+const focusMatterSummary = document.getElementById('focus-matter-summary');
+const focusMatterModal = document.getElementById('focus-matter-modal');
+const focusMatterInput = document.getElementById('focus-matter-input');
+const focusMatterClose = document.querySelector('.focus-matter-close');
+const saveFocusMatterBtn = document.getElementById('save-focus-matter-btn');
+const closeFocusMatterBtn = document.getElementById('close-focus-matter-btn');
+const exportRecordBtn = document.getElementById('export-record-btn');
+let currentFocusMatterContent = '';
+let focusMatterUiVisible = false;
 
 // 加载配置与状态
 ipcRenderer.send('get-config');
@@ -344,6 +371,90 @@ function updateTimeDisplay(seconds) {
     timeDisplay.textContent = formatTime(seconds);
 }
 
+function applyFocusMatterSummary(content) {
+    currentFocusMatterContent = content == null ? '' : String(content);
+    if (!focusMatterSummary) return;
+    const summary = formatMatterSummary(currentFocusMatterContent, MAIN_SUMMARY_MAX);
+    focusMatterSummary.textContent = summary.display;
+    focusMatterSummary.title = summary.title;
+}
+
+function setFocusMatterUiVisible(visible) {
+    focusMatterUiVisible = !!visible;
+    if (focusMatterBtn) {
+        focusMatterBtn.style.display = focusMatterUiVisible ? 'inline-block' : 'none';
+    }
+    if (focusMatterSummary) {
+        focusMatterSummary.style.display = focusMatterUiVisible ? 'block' : 'none';
+    }
+    if (focusMatterUiVisible) {
+        applyFocusMatterSummary(currentFocusMatterContent);
+    }
+}
+
+function openFocusMatterModal() {
+    if (!focusMatterModal) return;
+    focusMatterModal.style.display = 'flex';
+    focusMatterModal.classList.add('show');
+    ipcRenderer.send('get-current-focus-matter');
+}
+
+function closeFocusMatterModal(saveDraft) {
+    if (!focusMatterModal) return;
+    if (saveDraft && focusMatterInput) {
+        ipcRenderer.send('set-current-focus-matter', focusMatterInput.value);
+    }
+    focusMatterModal.classList.remove('show');
+    focusMatterModal.style.display = 'none';
+}
+
+ipcRenderer.on('current-focus-matter', (event, data) => {
+    const content = (data && data.content) || '';
+    applyFocusMatterSummary(content);
+    if (focusMatterInput && focusMatterModal && focusMatterModal.classList.contains('show')) {
+        focusMatterInput.value = content;
+        focusMatterInput.focus();
+    }
+});
+
+ipcRenderer.on('focus-matter-updated', (event, data) => {
+    applyFocusMatterSummary((data && data.content) || '');
+});
+
+ipcRenderer.on('focus-matter-visibility', (event, data) => {
+    setFocusMatterUiVisible(!!(data && data.visible));
+});
+
+if (focusMatterBtn) {
+    focusMatterBtn.addEventListener('click', openFocusMatterModal);
+}
+if (focusMatterSummary) {
+    focusMatterSummary.addEventListener('click', openFocusMatterModal);
+    focusMatterSummary.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            openFocusMatterModal();
+        }
+    });
+}
+if (saveFocusMatterBtn) {
+    saveFocusMatterBtn.addEventListener('click', () => {
+        ipcRenderer.send('set-current-focus-matter', focusMatterInput ? focusMatterInput.value : '');
+        closeFocusMatterModal(false);
+    });
+}
+if (closeFocusMatterBtn) {
+    closeFocusMatterBtn.addEventListener('click', () => closeFocusMatterModal(true));
+}
+if (focusMatterClose) {
+    focusMatterClose.addEventListener('click', () => closeFocusMatterModal(true));
+}
+if (focusMatterModal) {
+    focusMatterModal.addEventListener('click', (e) => {
+        if (e.target === focusMatterModal) closeFocusMatterModal(true);
+    });
+}
+
 // 监听计时器更新
 ipcRenderer.on('timer-update', (event, remaining) => {
     timerState.remaining = remaining;
@@ -356,6 +467,7 @@ ipcRenderer.on('timer-update', (event, remaining) => {
         startBtn.disabled = true;
         pauseBtn.disabled = false;
         stopBtn.disabled = false;
+        setFocusMatterUiVisible(true);
     }
 });
 
@@ -369,6 +481,8 @@ ipcRenderer.on('timer-stopped', () => {
     startBtn.disabled = false;
     pauseBtn.disabled = true;
     stopBtn.disabled = true;
+    setFocusMatterUiVisible(false);
+    closeFocusMatterModal(true);
 });
 
 // 开始按钮
@@ -538,15 +652,25 @@ function renderRecordList(data) {
     recordListEl.innerHTML = merged.map((item) => {
         if (item.type === 'focus') {
             const timeStr = formatRecordTime(item.startTime) + ' ~ ' + formatRecordTime(item.endTime);
-            const content = item.inputContent
-                ? `<div class="record-item-content"><span class="record-item-content-label">事项：</span>${escapeHtml(item.inputContent)}</div>`
-                : '';
-            return `<div class="record-item focus">
-                <div class="record-item-time">${timeStr}</div>
+            const contentText = item.inputContent || '';
+            return `<div class="record-item focus" data-id="${escapeHtml(item.id || '')}">
+                <div class="record-item-header">
+                    <div class="record-item-time">${timeStr}</div>
+                    <button type="button" class="btn-record-edit" data-id="${escapeHtml(item.id || '')}">编辑</button>
+                </div>
                 <div class="record-item-meta">
                     <span class="record-item-duration">时长：专注 ${item.durationMinutes} 分钟</span>
                 </div>
-                ${content}
+                <div class="record-item-content record-item-view">
+                    <span class="record-item-content-label">事项：</span><span class="record-item-content-text">${contentText ? escapeHtml(contentText) : '<span class="record-item-empty">（未填写）</span>'}</span>
+                </div>
+                <div class="record-item-edit" style="display:none;">
+                    <textarea class="record-edit-input" rows="3">${escapeHtml(contentText)}</textarea>
+                    <div class="record-edit-actions">
+                        <button type="button" class="btn btn-primary btn-record-save" data-id="${escapeHtml(item.id || '')}">保存</button>
+                        <button type="button" class="btn btn-secondary btn-record-cancel">取消</button>
+                    </div>
+                </div>
             </div>`;
         }
         const timeStr = formatRecordTime(item.startTime) + ' ~ ' + formatRecordTime(item.endTime);
@@ -559,6 +683,44 @@ function renderRecordList(data) {
     }).join('');
 }
 
+recordListEl.addEventListener('click', (e) => {
+    const editBtn = e.target.closest('.btn-record-edit');
+    if (editBtn) {
+        const item = editBtn.closest('.record-item');
+        if (!item) return;
+        item.querySelector('.record-item-view').style.display = 'none';
+        item.querySelector('.record-item-edit').style.display = 'block';
+        editBtn.style.display = 'none';
+        return;
+    }
+    const cancelBtn = e.target.closest('.btn-record-cancel');
+    if (cancelBtn) {
+        const item = cancelBtn.closest('.record-item');
+        if (!item) return;
+        item.querySelector('.record-item-edit').style.display = 'none';
+        item.querySelector('.record-item-view').style.display = '';
+        const edit = item.querySelector('.btn-record-edit');
+        if (edit) edit.style.display = '';
+        return;
+    }
+    const saveBtn = e.target.closest('.btn-record-save');
+    if (saveBtn) {
+        const id = saveBtn.dataset.id;
+        const item = saveBtn.closest('.record-item');
+        const textarea = item && item.querySelector('.record-edit-input');
+        const inputContent = textarea ? textarea.value : '';
+        ipcRenderer.send('update-focus-session', { id, inputContent });
+    }
+});
+
+ipcRenderer.on('focus-session-updated', (event, result) => {
+    if (!result || !result.ok) {
+        alert('保存失败，未找到该记录');
+        return;
+    }
+    loadRecordSessions();
+});
+
 function escapeHtml(s) {
     const div = document.createElement('div');
     div.textContent = s;
@@ -569,11 +731,29 @@ ipcRenderer.on('sessions-loaded', (event, data) => {
     renderRecordList(data);
 });
 
+function syncDayDateControls(ymd) {
+    if (recordDateInput) recordDateInput.value = ymd || '';
+    if (recordDateText) recordDateText.value = ymd || '';
+}
+
+function applyDayDateFromText() {
+    const parsed = parseDateInput(recordDateText ? recordDateText.value : '');
+    if (!parsed.ok) {
+        alert('请输入合法日期，格式：YYYY-MM-DD');
+        if (recordDateText && recordDateInput) recordDateText.value = recordDateInput.value || '';
+        return false;
+    }
+    syncDayDateControls(parsed.value);
+    recordQuery.value = parsed.value;
+    loadRecordSessions();
+    return true;
+}
+
 function openRecordModal() {
     recordModal.style.display = 'flex';
     recordModal.classList.add('show');
-    const today = new Date();
-    recordDateInput.value = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+    const today = formatDateYmd(new Date());
+    syncDayDateControls(today);
     recordQuery = { type: 'day', value: null };
     loadRecordSessions();
 }
@@ -612,7 +792,9 @@ document.querySelectorAll('.record-tab').forEach((tab) => {
         recordQuery.type = type;
         if (type === 'day') {
             document.querySelector('.day-range').style.display = 'flex';
-            recordQuery.value = recordDateInput.value || null;
+            const ymd = (recordDateInput && recordDateInput.value) || formatDateYmd(new Date());
+            syncDayDateControls(ymd);
+            recordQuery.value = ymd;
         } else if (type === 'week') {
             document.querySelector('.week-range').style.display = 'flex';
             const d = new Date();
@@ -632,12 +814,13 @@ document.querySelectorAll('.record-range .btn-range').forEach((btn) => {
         if (recordQuery.type === 'day') {
             const d = new Date();
             d.setDate(d.getDate() + offset);
-            recordDateInput.value = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-            recordQuery.value = recordDateInput.value;
+            const ymd = formatDateYmd(d);
+            syncDayDateControls(ymd);
+            recordQuery.value = ymd;
         } else if (recordQuery.type === 'week') {
             const d = new Date();
             d.setDate(d.getDate() + offset * 7);
-            recordQuery.value = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+            recordQuery.value = formatDateYmd(d);
         } else {
             const d = new Date();
             d.setMonth(d.getMonth() + offset);
@@ -648,8 +831,61 @@ document.querySelectorAll('.record-range .btn-range').forEach((btn) => {
 });
 
 recordDateInput.addEventListener('change', () => {
-    recordQuery.value = recordDateInput.value || null;
+    const ymd = recordDateInput.value || '';
+    syncDayDateControls(ymd);
+    recordQuery.value = ymd || null;
     loadRecordSessions();
+});
+
+if (recordDateText) {
+    recordDateText.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            applyDayDateFromText();
+        }
+    });
+    recordDateText.addEventListener('blur', () => {
+        if (!recordDateText.value.trim()) {
+            if (recordDateInput) recordDateText.value = recordDateInput.value || '';
+            return;
+        }
+        if (recordDateText.value.trim() !== (recordDateInput && recordDateInput.value)) {
+            applyDayDateFromText();
+        }
+    });
+}
+
+function currentExportFilterLabel() {
+    if (recordQuery.type === 'day') {
+        return recordQuery.value || (recordDateInput && recordDateInput.value) || formatDateYmd(new Date());
+    }
+    if (recordQuery.type === 'week') return recordQuery.value || 'week';
+    if (recordQuery.type === 'month') return recordQuery.value || 'month';
+    return '记录';
+}
+
+if (exportRecordBtn) {
+    exportRecordBtn.addEventListener('click', () => {
+        ipcRenderer.send('export-sessions', {
+            type: recordQuery.type,
+            value: recordQuery.value,
+            filterLabel: currentExportFilterLabel()
+        });
+    });
+}
+
+ipcRenderer.on('sessions-exported', (event, result) => {
+    if (!result) return;
+    if (result.ok) {
+        alert('导出成功：\n' + result.filePath);
+        return;
+    }
+    if (result.reason === 'empty') {
+        alert('当前筛选无记录可导出');
+        return;
+    }
+    if (result.reason === 'cancelled') return;
+    alert('导出失败' + (result.message ? '：' + result.message : ''));
 });
 
 // 初始化显示

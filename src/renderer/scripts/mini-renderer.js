@@ -35,6 +35,14 @@ try {
   ({ formatRestRemaining, restFinishedUi, restRemainingUi, restStateLoadedUi } = require('./restDisplay'));
 }
 
+let formatMatterSummary;
+let MINI_SUMMARY_MAX;
+try {
+  ({ formatMatterSummary, MINI_SUMMARY_MAX } = require('./scripts/focusMatterDisplay'));
+} catch (primaryError) {
+  ({ formatMatterSummary, MINI_SUMMARY_MAX } = require('./focusMatterDisplay'));
+}
+
 const timeDisplay = document.getElementById('time-display');
 const statusText = document.getElementById('status-text');
 const restRow = document.getElementById('rest-row');
@@ -54,6 +62,15 @@ const quitAppBtn = document.getElementById('quit-app-btn');
 const salaryLine1 = document.getElementById('salary-mini-line1');
 const salaryLine2 = document.getElementById('salary-mini-line2');
 const salaryLine3 = document.getElementById('salary-mini-line3');
+const miniMatterRow = document.getElementById('mini-matter-row');
+const miniMatterText = document.getElementById('mini-matter-text');
+const miniMatterEditBtn = document.getElementById('mini-matter-edit-btn');
+const miniMatterOverlay = document.getElementById('mini-matter-overlay');
+const miniMatterInput = document.getElementById('mini-matter-input');
+const miniMatterSaveBtn = document.getElementById('mini-matter-save-btn');
+const miniMatterCloseBtn = document.getElementById('mini-matter-close-btn');
+let currentFocusMatterContent = '';
+let matterUiVisible = false;
 
 let miniConfig = {
   focusDuration: 25,
@@ -87,6 +104,42 @@ function updateButtons() {
   } else {
     pauseBtn.textContent = '暂停';
   }
+}
+
+function applyMiniMatterSummary(content) {
+  currentFocusMatterContent = content == null ? '' : String(content);
+  if (!miniMatterText) return;
+  const summary = formatMatterSummary(currentFocusMatterContent, MINI_SUMMARY_MAX);
+  miniMatterText.textContent = summary.display;
+  miniMatterText.title = summary.title;
+}
+
+function setMiniMatterVisible(visible) {
+  matterUiVisible = !!visible;
+  if (miniMatterRow) {
+    miniMatterRow.classList.toggle('show', matterUiVisible);
+  }
+  if (matterUiVisible) {
+    applyMiniMatterSummary(currentFocusMatterContent);
+  } else if (miniMatterOverlay) {
+    miniMatterOverlay.classList.remove('show');
+  }
+  ipcRenderer.send('resize-mini-for-matter', { visible: matterUiVisible });
+}
+
+function openMiniMatterEditor() {
+  if (!miniMatterOverlay || !miniMatterInput) return;
+  miniMatterInput.value = currentFocusMatterContent;
+  miniMatterOverlay.classList.add('show');
+  miniMatterInput.focus();
+}
+
+function closeMiniMatterEditor(saveDraft) {
+  if (!miniMatterOverlay) return;
+  if (saveDraft && miniMatterInput) {
+    ipcRenderer.send('set-current-focus-matter', miniMatterInput.value);
+  }
+  miniMatterOverlay.classList.remove('show');
 }
 
 function updateLayerButtons() {
@@ -247,6 +300,7 @@ ipcRenderer.on('timer-update', (event, remaining) => {
   }
   isRunning = true;
   isPaused = false;
+  setMiniMatterVisible(true);
   updateButtons();
 });
 
@@ -262,14 +316,33 @@ ipcRenderer.on('mini-status', (event, { isRunning: running, isPaused: paused }) 
     }
     statusText.className = 'status-text';
     timeDisplay.textContent = formatTime(fd * 60);
+    setMiniMatterVisible(false);
   } else if (paused) {
     statusText.textContent = '已暂停';
     statusText.className = 'status-text paused';
+    setMiniMatterVisible(true);
   } else {
     statusText.textContent = '专注中';
     statusText.className = 'status-text focusing';
+    setMiniMatterVisible(true);
   }
   updateButtons();
+});
+
+ipcRenderer.on('focus-matter-visibility', (event, data) => {
+  setMiniMatterVisible(!!(data && data.visible));
+});
+
+ipcRenderer.on('focus-matter-updated', (event, data) => {
+  applyMiniMatterSummary((data && data.content) || '');
+});
+
+ipcRenderer.on('current-focus-matter', (event, data) => {
+  const content = (data && data.content) || '';
+  applyMiniMatterSummary(content);
+  if (miniMatterInput && miniMatterOverlay && miniMatterOverlay.classList.contains('show')) {
+    miniMatterInput.value = content;
+  }
 });
 
 ipcRenderer.on('rest-started', (event, startTimestamp) => {
@@ -345,5 +418,22 @@ quitAppBtn.addEventListener('click', () => {
   }
 });
 
+if (miniMatterText) {
+  miniMatterText.addEventListener('click', openMiniMatterEditor);
+}
+if (miniMatterEditBtn) {
+  miniMatterEditBtn.addEventListener('click', openMiniMatterEditor);
+}
+if (miniMatterSaveBtn) {
+  miniMatterSaveBtn.addEventListener('click', () => {
+    ipcRenderer.send('set-current-focus-matter', miniMatterInput ? miniMatterInput.value : '');
+    closeMiniMatterEditor(false);
+  });
+}
+if (miniMatterCloseBtn) {
+  miniMatterCloseBtn.addEventListener('click', () => closeMiniMatterEditor(true));
+}
+
 updateLayerButtons();
 startSalaryTick();
+ipcRenderer.send('get-current-focus-matter');

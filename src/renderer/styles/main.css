@@ -44,6 +44,55 @@ body {
 
 .timer-display {
     margin: 24px 0;
+    position: relative;
+}
+
+.focus-matter-btn {
+    position: absolute;
+    right: 0;
+    top: 0;
+    padding: 4px 10px;
+    font-size: 0.8em;
+    border: 1px solid #667eea;
+    background: #fff;
+    color: #667eea;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.focus-matter-btn:hover {
+    background: #667eea;
+    color: #fff;
+}
+
+.focus-matter-summary {
+    margin-top: 8px;
+    font-size: 0.9em;
+    color: #555;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+    line-height: 1.4;
+}
+
+.focus-matter-summary:hover {
+    color: #667eea;
+}
+
+.modal-focus-matter {
+    max-width: 420px;
+}
+
+.modal-focus-matter textarea {
+    width: 100%;
+    padding: 10px;
+    font-size: 1em;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    resize: vertical;
+    font-family: inherit;
 }
 
 .time-text {
@@ -464,11 +513,28 @@ body {
     color: #555;
     display: flex;
     flex-wrap: wrap;
-    gap: 12px;
+    align-items: center;
+    gap: 10px 16px;
 }
 
 .record-summary strong {
     color: #667eea;
+}
+
+.btn-export-record {
+    margin-left: auto;
+    padding: 4px 10px;
+    font-size: 0.85em;
+    border: 1px solid #667eea;
+    background: #fff;
+    color: #667eea;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.btn-export-record:hover {
+    background: #667eea;
+    color: #fff;
 }
 
 .record-list {
@@ -527,6 +593,63 @@ body {
     color: #666;
     font-size: 0.9em;
     margin-right: 4px;
+}
+
+.record-item-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+}
+
+.btn-record-edit {
+    flex-shrink: 0;
+    padding: 2px 8px;
+    font-size: 0.8em;
+    border: 1px solid #667eea;
+    background: #fff;
+    color: #667eea;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.btn-record-edit:hover {
+    background: #667eea;
+    color: #fff;
+}
+
+.record-edit-input {
+    width: 100%;
+    margin-top: 6px;
+    padding: 8px;
+    font-size: 0.9em;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-family: inherit;
+    resize: vertical;
+}
+
+.record-edit-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.record-edit-actions .btn {
+    padding: 4px 12px;
+    font-size: 0.85em;
+}
+
+.record-item-empty {
+    color: #999;
+}
+
+.record-date-text {
+    width: 110px;
+    padding: 4px 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 0.9em;
 }
 
 .record-list-empty {

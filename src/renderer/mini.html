@@ -36,6 +36,74 @@
         }
         .status-text.focusing { color: #ffeb3b; }
         .status-text.paused { color: #ff9800; }
+        .mini-matter-row {
+            -webkit-app-region: no-drag;
+            display: none;
+            align-items: center;
+            gap: 4px;
+            width: 100%;
+            margin-top: 3px;
+            padding: 0 2px;
+            max-width: 218px;
+        }
+        .mini-matter-row.show { display: flex; }
+        .mini-matter-text {
+            flex: 1;
+            min-width: 0;
+            font-size: 0.62em;
+            color: rgba(255,255,255,0.95);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            cursor: pointer;
+        }
+        .mini-matter-edit {
+            flex-shrink: 0;
+            padding: 1px 6px;
+            font-size: 0.6em;
+            border: none;
+            border-radius: 4px;
+            background: rgba(255,255,255,0.9);
+            color: #667eea;
+            cursor: pointer;
+        }
+        .mini-matter-overlay {
+            -webkit-app-region: no-drag;
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.45);
+            z-index: 20;
+            padding: 8px;
+            flex-direction: column;
+            justify-content: center;
+        }
+        .mini-matter-overlay.show { display: flex; }
+        .mini-matter-overlay textarea {
+            width: 100%;
+            min-height: 72px;
+            border: none;
+            border-radius: 6px;
+            padding: 6px;
+            font-size: 0.75em;
+            font-family: inherit;
+            resize: none;
+        }
+        .mini-matter-overlay-actions {
+            display: flex;
+            gap: 6px;
+            margin-top: 6px;
+            justify-content: flex-end;
+        }
+        .mini-matter-overlay-actions button {
+            padding: 3px 8px;
+            font-size: 0.68em;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .mini-matter-save { background: #fff; color: #667eea; }
+        .mini-matter-close { background: rgba(255,255,255,0.35); color: #fff; }
         .rest-row {
             -webkit-app-region: no-drag;
             font-size: 0.68em;
@@ -147,6 +215,17 @@
 <body>
     <div id="time-display" class="time-text">25:00</div>
     <div id="status-text" class="status-text">准备就绪</div>
+    <div id="mini-matter-row" class="mini-matter-row">
+        <span id="mini-matter-text" class="mini-matter-text"></span>
+        <button type="button" id="mini-matter-edit-btn" class="mini-matter-edit" title="编辑事项">✎</button>
+    </div>
+    <div id="mini-matter-overlay" class="mini-matter-overlay">
+        <textarea id="mini-matter-input" placeholder="当前专注事项…"></textarea>
+        <div class="mini-matter-overlay-actions">
+            <button type="button" id="mini-matter-save-btn" class="mini-matter-save">保存</button>
+            <button type="button" id="mini-matter-close-btn" class="mini-matter-close">关闭</button>
+        </div>
+    </div>
     <div id="rest-row" class="rest-row">本次休息：<span id="rest-minutes">0</span> 分钟</div>
     <div id="rest-remaining-row" class="rest-row">休息剩余：<span id="rest-remaining">00:00</span></div>
     <div class="mini-btns">

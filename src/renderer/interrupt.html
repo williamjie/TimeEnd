@@ -175,7 +175,9 @@
 
         let isStopMode = false;
 
-        ipcRenderer.on('interrupt-mode', (event, mode) => {
+        ipcRenderer.on('interrupt-mode', (event, payload) => {
+            const mode = typeof payload === 'string' ? payload : (payload && payload.mode);
+            const draft = typeof payload === 'string' ? '' : ((payload && payload.draft) || '');
             isStopMode = (mode === 'stop');
             if (isStopMode) {
                 document.title = '记录本次专注事项 - TimeEnd';
@@ -188,6 +190,10 @@
                 submitBtn.disabled = false;
                 skipBtn.style.display = 'inline-block';
                 warningEl.style.display = 'none';
+            }
+            if (draft) {
+                input.value = draft;
+                checkInput();
             }
         });
 

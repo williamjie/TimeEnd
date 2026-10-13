@@ -14,8 +14,10 @@
         </div>
 
         <div class="timer-display">
+            <button type="button" id="focus-matter-btn" class="focus-matter-btn" style="display: none;" title="编辑事项">编辑</button>
             <div id="time-display" class="time-text">25:00</div>
             <div id="status-text" class="status-text">准备就绪</div>
+            <div id="focus-matter-summary" class="focus-matter-summary" style="display: none;" role="button" tabindex="0"></div>
         </div>
 
         <div class="stats-section">
@@ -133,6 +135,26 @@
         </div>
     </div>
 
+    <!-- 当前专注事项弹窗 -->
+    <div id="focus-matter-modal" class="modal">
+        <div class="modal-content modal-focus-matter">
+            <div class="modal-header">
+                <h2>当前专注事项</h2>
+                <span class="close focus-matter-close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="focus-matter-input">事项内容：</label>
+                    <textarea id="focus-matter-input" rows="4" placeholder="记录本次要做 / 正在做的事…"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="save-focus-matter-btn" class="btn btn-primary">保存</button>
+                <button id="close-focus-matter-btn" class="btn btn-secondary">关闭</button>
+            </div>
+        </div>
+    </div>
+
     <!-- 记录弹窗 -->
     <div id="record-modal" class="modal">
         <div class="modal-content modal-record">
@@ -149,6 +171,7 @@
                 <div class="record-range day-range">
                     <button type="button" class="btn-range" data-offset="0">今天</button>
                     <button type="button" class="btn-range" data-offset="-1">昨天</button>
+                    <input type="text" id="record-date-text" class="record-date-text" placeholder="YYYY-MM-DD" title="输入日期" maxlength="10">
                     <input type="date" id="record-date" title="选择日期">
                 </div>
                 <div class="record-range week-range" style="display:none;">
@@ -162,6 +185,7 @@
                 <div class="record-summary">
                     <span>专注 <strong id="record-focus-count">0</strong> 次，共 <strong id="record-focus-min">0</strong> 分钟</span>
                     <span>休息共 <strong id="record-rest-min">0</strong> 分钟</span>
+                    <button type="button" id="export-record-btn" class="btn-export-record" title="导出当前筛选（可选择 Markdown 或 CSV）">导出</button>
                 </div>
                 <div class="record-list" id="record-list"></div>
             </div>

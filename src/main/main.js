@@ -1,9 +1,16 @@
-const { app, BrowserWindow, ipcMain, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, dialog } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const Timer = require('./timer');
 const Store = require('electron-store');
 const sessionStore = require('./sessionStore');
 const { defaultConfig, mergeSavedConfig } = require('./configDefaults');
+const {
+  buildExportFilename,
+  shouldExport,
+  detectExportFormat,
+  renderExportContent
+} = require('./sessionsExport');
 const {
   decideOnRestFinished,
   shouldBeginRestAfterInterrupt,
@@ -17,8 +24,14 @@ const {
 } = require('./restLifecycle');
 const { shouldOpenWorkPrompt, workPromptWindowOptions } = require('./workPrompt');
 const { planOpenSettingsFromMini } = require('./openFromMini');
+const { createFocusMatterState } = require('./focusMatter');
 
 const store = new Store();
+const focusMatter = createFocusMatterState();
+
+function broadcastFocusMatterUpdated() {
+  sendToWindows('focus-matter-updated', { content: focusMatter.get() });
+}
 
 let mainWindow = null;
 let interruptWindow = null;
@@ -171,7 +184,10 @@ function startFocusTimer(duration) {
   clearRestFinishedStandby();
   frozenRestMinutes = null;
   sendToWindows('rest-cleared');
+  focusMatter.beginFocus();
   focusStartTime = Date.now();
+  sendToWindows('focus-matter-visibility', { visible: true });
+  broadcastFocusMatterUpdated();
   if (timer) {
     timer.stop();
   }
@@ -264,6 +280,7 @@ function createInterruptWindow(mode = 'interrupt') {
     return;
   }
 
+  sendToWindows('focus-matter-visibility', { visible: false });
   interruptMode = mode;
   const interruptParent = miniWindow && !miniWindow.isDestroyed() ? miniWindow : mainWindow;
   interruptWindow = new BrowserWindow({
@@ -284,7 +301,10 @@ function createInterruptWindow(mode = 'interrupt') {
   interruptWindow.loadFile(path.join(__dirname, '../renderer/interrupt.html'));
 
   interruptWindow.webContents.on('did-finish-load', () => {
-    interruptWindow.webContents.send('interrupt-mode', interruptMode);
+    interruptWindow.webContents.send('interrupt-mode', {
+      mode: interruptMode,
+      draft: focusMatter.get()
+    });
   });
 
   interruptWindow.on('closed', () => {
@@ -295,7 +315,7 @@ function createInterruptWindow(mode = 'interrupt') {
     interruptMode = 'interrupt';
   });
 
-  // 关闭时：stop 模式视为跳过，写空内容并收尾；interrupt 模式必须输入
+  // 关闭时：stop 模式视为跳过（有草稿则写入草稿）；interrupt 模式必须输入
   interruptWindow.on('close', (event) => {
     if (interruptMode === 'stop') {
       event.preventDefault();
@@ -315,6 +335,7 @@ function runStopAftermath(inputContent) {
   pauseRestStartTime = null;
   frozenRestMinutes = null;
   pendingStopEndTime = null;
+  sendToWindows('focus-matter-visibility', { visible: false });
   if (interruptWindow) {
     interruptWindow.destroy();
     interruptWindow = null;
@@ -393,7 +414,7 @@ function createMiniWindow() {
   miniWindow.on('closed', () => {
     miniWindow = null;
   });
-  // 同步当前计时、状态、配置、休息到小窗口
+  // 同步当前计时、状态、配置、休息、事项到小窗口
   miniWindow.webContents.on('did-finish-load', () => {
     positionMiniWindowBottomRight();
     syncMiniWindowLayerMode();
@@ -403,8 +424,11 @@ function createMiniWindow() {
     if (timer) {
       miniWindow.webContents.send('timer-update', timer.getRemaining());
       miniWindow.webContents.send('mini-status', { isRunning: true, isPaused: timer.isPaused });
+      miniWindow.webContents.send('focus-matter-visibility', { visible: true });
+      miniWindow.webContents.send('focus-matter-updated', { content: focusMatter.get() });
     } else {
       miniWindow.webContents.send('mini-status', { isRunning: false, isPaused: false });
+      miniWindow.webContents.send('focus-matter-visibility', { visible: false });
     }
   });
 }
@@ -451,17 +475,20 @@ function saveRestSessionIfAny() {
   persistRestIfAny();
 }
 
-// 写入专注记录
+// 写入专注记录（提交为空时回退到进行中草稿）
 function saveFocusSession(endTime, inputContent) {
   if (focusStartTime == null) return;
   const durationMinutes = Math.round((endTime - focusStartTime) / 60000);
+  const resolved = focusMatter.resolveForSave(inputContent);
   sessionStore.appendFocusSession({
     id: `focus-${focusStartTime}-${Math.random().toString(36).slice(2, 9)}`,
     startTime: focusStartTime,
     endTime,
     durationMinutes,
-    inputContent: inputContent || ''
+    inputContent: resolved
   });
+  focusMatter.clear();
+  broadcastFocusMatterUpdated();
 }
 
 // 按时间段筛选并排序（结束时间倒序），从当前周 + 所有历史周文件合并取数
@@ -550,6 +577,7 @@ ipcMain.on('stop-timer', () => {
     pendingStopEndTime = endTime;
     timer.stop();
     timer = null;
+    sendToWindows('focus-matter-visibility', { visible: false });
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('timer-stopped');
     }
@@ -568,6 +596,7 @@ ipcMain.on('interrupt-submitted', (event, inputText) => {
   const endTime = Date.now();
   saveFocusSession(endTime, inputText);
   focusStartTime = null;
+  sendToWindows('focus-matter-visibility', { visible: false });
   // 更新统计数据（仅自然结束更新）
   const stats = store.get('stats', {
     completedSessions: 0,
@@ -594,6 +623,67 @@ ipcMain.on('interrupt-submitted', (event, inputText) => {
     mainWindow.webContents.send('stats-updated', stats);
   }
   startRestCountdown();
+});
+
+ipcMain.on('get-current-focus-matter', (event) => {
+  event.reply('current-focus-matter', { content: focusMatter.get() });
+});
+
+ipcMain.on('set-current-focus-matter', (event, content) => {
+  focusMatter.set(content);
+  const payload = { content: focusMatter.get() };
+  event.reply('current-focus-matter', payload);
+  broadcastFocusMatterUpdated();
+});
+
+ipcMain.on('update-focus-session', (event, { id, inputContent }) => {
+  const result = sessionStore.updateFocusSession(id, { inputContent });
+  event.reply('focus-session-updated', result);
+});
+
+ipcMain.on('export-sessions', async (event, { type, value, filterLabel } = {}) => {
+  const result = getSessionsInRange(type || 'day', value);
+  const merged = [];
+  (result.focusSessions || []).forEach((s) => merged.push({ type: 'focus', ...s }));
+  (result.restSessions || []).forEach((s) => merged.push({ type: 'rest', ...s }));
+  merged.sort((a, b) => (b.endTime || 0) - (a.endTime || 0));
+  if (!shouldExport(merged)) {
+    event.reply('sessions-exported', { ok: false, reason: 'empty' });
+    return;
+  }
+  const defaultName = buildExportFilename({
+    filterLabel: filterLabel || value || type || '记录',
+    format: 'md'
+  });
+  const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+  const { canceled, filePath } = await dialog.showSaveDialog(win, {
+    title: '导出记录',
+    defaultPath: defaultName,
+    filters: [
+      { name: 'Markdown (.md)', extensions: ['md'] },
+      { name: 'Excel CSV (.csv)', extensions: ['csv'] }
+    ]
+  });
+  if (canceled || !filePath) {
+    event.reply('sessions-exported', { ok: false, reason: 'cancelled' });
+    return;
+  }
+  try {
+    const format = detectExportFormat(filePath);
+    fs.writeFileSync(filePath, renderExportContent(merged, format), 'utf8');
+    event.reply('sessions-exported', { ok: true, filePath, format });
+  } catch (e) {
+    event.reply('sessions-exported', { ok: false, reason: 'write-failed', message: e.message });
+  }
+});
+
+ipcMain.on('resize-mini-for-matter', (event, { visible } = {}) => {
+  if (!miniWindow || miniWindow.isDestroyed()) return;
+  const [w] = miniWindow.getSize();
+  const baseH = 304;
+  const withMatterH = 332;
+  miniWindow.setSize(w, visible ? withMatterH : baseH);
+  positionMiniWindowBottomRight();
 });
 
 ipcMain.on('close-interrupt', (event, hasInput) => {

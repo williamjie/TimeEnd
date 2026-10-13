@@ -4,10 +4,22 @@
  */
 const fs = require('fs');
 const path = require('path');
-const { app } = require('electron');
+
+/** 测试注入用；为 null 时使用 electron userData/sessions */
+let sessionsRootOverride = null;
+
+function setSessionsRoot(dir) {
+  sessionsRootOverride = dir || null;
+}
 
 function getSessionsDir() {
-  const dir = path.join(app.getPath('userData'), 'sessions');
+  let dir;
+  if (sessionsRootOverride) {
+    dir = sessionsRootOverride;
+  } else {
+    const { app } = require('electron');
+    dir = path.join(app.getPath('userData'), 'sessions');
+  }
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
@@ -92,6 +104,28 @@ function loadAllSessions() {
   return { focusSessions, restSessions };
 }
 
+/**
+ * 按 id 更新专注记录的 inputContent（不改时间/时长）。
+ * @returns {{ ok: boolean }}
+ */
+function updateFocusSession(id, patch) {
+  if (!id) return { ok: false };
+  const keys = listWeekKeys();
+  for (const weekKey of keys) {
+    const data = loadWeek(weekKey);
+    const idx = data.focusSessions.findIndex((s) => s && s.id === id);
+    if (idx === -1) continue;
+    const next = { ...data.focusSessions[idx] };
+    if (patch && Object.prototype.hasOwnProperty.call(patch, 'inputContent')) {
+      next.inputContent = patch.inputContent == null ? '' : String(patch.inputContent);
+    }
+    data.focusSessions[idx] = next;
+    saveWeek(weekKey, data);
+    return { ok: true };
+  }
+  return { ok: false };
+}
+
 module.exports = {
   getWeekKey,
   loadWeek,
@@ -99,5 +133,7 @@ module.exports = {
   appendFocusSession,
   appendRestSession,
   loadAllSessions,
-  listWeekKeys
+  listWeekKeys,
+  updateFocusSession,
+  setSessionsRoot
 };

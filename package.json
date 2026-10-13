@@ -4,7 +4,7 @@
   "description": "强制中断计时器 - 专注工作，强制休息",
   "main": "src/main/main.js",
   "scripts": {
-    "test": "node --test ./test/configDefaults.test.js ./test/restLifecycle.test.js ./test/restDisplay.test.js ./test/workPrompt.test.js ./test/openFromMini.test.js",
+    "test": "node --test ./test/configDefaults.test.js ./test/restLifecycle.test.js ./test/restDisplay.test.js ./test/workPrompt.test.js ./test/openFromMini.test.js ./test/focusMatter.test.js ./test/recordDateFilter.test.js ./test/sessionStoreUpdate.test.js ./test/focusMatterDisplay.test.js ./test/sessionsExport.test.js",
     "start": "electron .",
     "build": "node scripts/bump-version.js && electron-builder",
     "build:no-bump": "electron-builder",
